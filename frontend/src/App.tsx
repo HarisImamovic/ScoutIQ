@@ -28,6 +28,11 @@ import SalariesPage from "./pages/dashboard/club/SalariesPage";
 import ClubReportsPage from "./pages/dashboard/club/ClubReportsPage";
 import MyPlayersPage from "./pages/dashboard/club/MyPlayersPage";
 
+import AdminUsersPage from "./pages/dashboard/admin/AdminUsersPage";
+import AdminClubsPage from "./pages/dashboard/admin/AdminClubsPage";
+import AdminPlayersPage from "./pages/dashboard/admin/AdminPlayersPage";
+import AdminReportsPage from "./pages/dashboard/admin/AdminReportsPage";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -65,6 +70,12 @@ const App = () => (
                 <Route path="my-players" element={<MyPlayersPage />} />
                 <Route path="club-reports" element={<ClubReportsPage />} />
                 <Route path="salaries" element={<SalariesPage />} />
+
+                {/* Global Admin pages */}
+                <Route path="admin/users" element={<AdminUsersPage />} />
+                <Route path="admin/clubs" element={<AdminClubsPage />} />
+                <Route path="admin/players" element={<AdminPlayersPage />} />
+                <Route path="admin/reports" element={<AdminReportsPage />} />
 
                 {/* Shared pages */}
                 <Route path="notifications" element={<NotificationsPage />} />
