@@ -1,0 +1,47 @@
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+
+from app.config import get_settings
+from app.limiter import limiter
+from app.routers import auth
+
+settings = get_settings()
+
+app = FastAPI(
+    title="ScoutIQ API",
+    version="1.0.0",
+    docs_url="/api/docs",
+    redoc_url=None,
+    openapi_url="/api/openapi.json",
+)
+
+app.state.limiter = limiter
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please try again later."},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An unexpected error occurred."},
+    )
+
+
+app.include_router(auth.router, prefix="/api/v1")
