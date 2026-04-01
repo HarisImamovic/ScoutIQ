@@ -4,14 +4,12 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
+import bcrypt as _bcrypt
 from jose import jwt
-from passlib.context import CryptContext
 
 from app.config import get_settings
 
 settings = get_settings()
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 
 _PASSWORD_RE = re.compile(
     r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&_\-#])[A-Za-z\d@$!%*?&_\-#]{8,72}$"
@@ -23,11 +21,11 @@ def validate_password_strength(password: str) -> bool:
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return _bcrypt.hashpw(password.encode(), _bcrypt.gensalt(rounds=12)).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return _bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
 def create_access_token(subject: str, role: str) -> str:
