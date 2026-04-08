@@ -15,7 +15,7 @@ const ROLE_OPTIONS = [
   { id: "club_admin", icon: Briefcase, title: "Club Admin", desc: "Manage your club's scouting operations" },
 ];
 
-const PASSWORD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&_\-#])[A-Za-z\d@$!%*?&_\-#]{8,72}$/;
+const PASSWORD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d\s])[\x20-\x7E]{8,72}$/;
 
 function getPasswordHints(pw: string) {
   return [
@@ -23,7 +23,7 @@ function getPasswordHints(pw: string) {
     { label: "One uppercase letter",          met: /[A-Z]/.test(pw) },
     { label: "One lowercase letter",          met: /[a-z]/.test(pw) },
     { label: "One number",                    met: /\d/.test(pw) },
-    { label: "One special character (@$!%*?&_-#)", met: /[@$!%*?&_\-#]/.test(pw) },
+    { label: "One special character",              met: /[^A-Za-z\d\s]/.test(pw) },
   ];
 }
 
