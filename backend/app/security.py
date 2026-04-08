@@ -5,7 +5,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt as _bcrypt
-from jose import jwt
+import jwt
 
 from app.config import get_settings
 
@@ -46,6 +46,7 @@ def decode_access_token(token: str) -> dict:
         token,
         settings.jwt_secret_key,
         algorithms=[settings.jwt_algorithm],
+        options={"require": ["sub", "exp", "iat", "type"]},
     )
 
 
