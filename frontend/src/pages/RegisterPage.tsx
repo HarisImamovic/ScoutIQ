@@ -84,10 +84,10 @@ export default function RegisterPage() {
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
-        if (status === 409) toast.error("An account with this email already exists.");
-        else toast.error("Something went wrong. Please try again.");
+        if (status === 409) toast.error("An account with this email already exists.", { duration: 8000 });
+        else toast.error("Something went wrong. Please try again.", { duration: 8000 });
       } else {
-        toast.error("Something went wrong. Please try again.");
+        toast.error("Something went wrong. Please try again.", { duration: 8000 });
       }
     } finally {
       setSubmitting(false);
