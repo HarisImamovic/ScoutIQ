@@ -13,5 +13,6 @@ build/
 .venv/
 venv/
 
-# Environment secrets
+# Environment secrets — never commit real .env files
 backend/.env
+frontend/.env

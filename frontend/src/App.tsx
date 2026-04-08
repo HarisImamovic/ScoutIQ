@@ -5,6 +5,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { RoleProvider } from "@/contexts/RoleContext";
+import { AuthProvider } from "@/contexts/AuthContext";
+import ProtectedRoute from "@/components/ProtectedRoute";
 
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
@@ -43,46 +45,48 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
-              <Route path="/dashboard" element={<DashboardLayout />}>
-                {/* Default redirect to scout dashboard */}
-                <Route index element={<Navigate to="/dashboard/scout" replace />} />
+            <AuthProvider>
+              <Routes>
+                <Route path="/" element={<LandingPage />} />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
+                <Route
+                  path="/dashboard"
+                  element={
+                    <ProtectedRoute>
+                      <DashboardLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route index element={<Navigate to="/dashboard/scout" replace />} />
 
-                {/* Role dashboards */}
-                <Route path="scout" element={<ScoutDashboard />} />
-                <Route path="player" element={<PlayerDashboard />} />
-                <Route path="club" element={<ClubDashboard />} />
-                <Route path="admin" element={<AdminDashboard />} />
+                  <Route path="scout" element={<ScoutDashboard />} />
+                  <Route path="player" element={<PlayerDashboard />} />
+                  <Route path="club" element={<ClubDashboard />} />
+                  <Route path="admin" element={<AdminDashboard />} />
 
-                {/* Scout pages */}
-                <Route path="players" element={<PlayersPage />} />
-                <Route path="saved-prospects" element={<SavedProspectsPage />} />
-                <Route path="reports" element={<ReportsPage />} />
-                <Route path="ai" element={<AIAssistantPage />} />
+                  <Route path="players" element={<PlayersPage />} />
+                  <Route path="saved-prospects" element={<SavedProspectsPage />} />
+                  <Route path="reports" element={<ReportsPage />} />
+                  <Route path="ai" element={<AIAssistantPage />} />
 
-                {/* Player pages */}
-                <Route path="highlights" element={<HighlightsPage />} />
+                  <Route path="highlights" element={<HighlightsPage />} />
 
-                {/* Club Admin pages */}
-                <Route path="my-players" element={<MyPlayersPage />} />
-                <Route path="club-reports" element={<ClubReportsPage />} />
-                <Route path="salaries" element={<SalariesPage />} />
+                  <Route path="my-players" element={<MyPlayersPage />} />
+                  <Route path="club-reports" element={<ClubReportsPage />} />
+                  <Route path="salaries" element={<SalariesPage />} />
 
-                {/* Global Admin pages */}
-                <Route path="admin/users" element={<AdminUsersPage />} />
-                <Route path="admin/clubs" element={<AdminClubsPage />} />
-                <Route path="admin/players" element={<AdminPlayersPage />} />
-                <Route path="admin/reports" element={<AdminReportsPage />} />
+                  <Route path="admin/users" element={<AdminUsersPage />} />
+                  <Route path="admin/clubs" element={<AdminClubsPage />} />
+                  <Route path="admin/players" element={<AdminPlayersPage />} />
+                  <Route path="admin/reports" element={<AdminReportsPage />} />
 
-                {/* Shared pages */}
-                <Route path="notifications" element={<NotificationsPage />} />
-                <Route path="settings" element={<SettingsPage />} />
-              </Route>
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+                  <Route path="notifications" element={<NotificationsPage />} />
+                  <Route path="settings" element={<SettingsPage />} />
+                </Route>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </AuthProvider>
           </BrowserRouter>
         </TooltipProvider>
       </RoleProvider>

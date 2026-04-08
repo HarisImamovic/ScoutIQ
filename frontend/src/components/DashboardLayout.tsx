@@ -3,7 +3,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   LayoutDashboard, Users, FileText, Bot, Bell, Settings,
   Shield, Menu, X, Search, ChevronLeft, Bookmark, Video,
-  DollarSign, Star, UserCog, Building2, CheckSquare
+  DollarSign, Star, UserCog, Building2, CheckSquare, LogOut
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useRole, UserRole } from "@/contexts/RoleContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 type NavItem = { icon: React.ElementType; label: string; path: string };
 
@@ -76,6 +77,11 @@ export default function DashboardLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { role, setRole } = useRole();
+  const { user, logout } = useAuth();
+
+  const userInitials = user
+    ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase()
+    : roleInitials[role];
 
   const navItems = navByRole[role];
 
@@ -194,9 +200,17 @@ export default function DashboardLayout() {
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full" />
               </Button>
             </Link>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => logout()}
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </Button>
             <Avatar className="w-8 h-8 cursor-pointer">
               <AvatarFallback className="bg-primary/20 text-primary text-sm font-semibold">
-                {roleInitials[role]}
+                {userInitials}
               </AvatarFallback>
             </Avatar>
           </div>
