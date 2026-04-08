@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { toast } from "sonner";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BouncingBall } from "@/components/BouncingBall";
-import { Shield, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { Shield, Mail, Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function LoginPage() {
@@ -18,6 +17,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [authError, setAuthError] = useState("");
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
@@ -37,18 +37,19 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
+    setAuthError("");
     setSubmitting(true);
     try {
       await login(email, password);
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
-        if (status === 401) toast.error("Invalid email or password.");
-        else if (status === 403) toast.error("Your account is unavailable.");
-        else if (status === 429) toast.error("Too many attempts. Please wait before trying again.");
-        else toast.error("Something went wrong. Please try again.");
+        if (status === 401) setAuthError("Invalid email or password.");
+        else if (status === 403) setAuthError("Your account is unavailable.");
+        else if (status === 429) setAuthError("Too many attempts. Please wait before trying again.");
+        else setAuthError("Something went wrong. Please try again.");
       } else {
-        toast.error("Something went wrong. Please try again.");
+        setAuthError("Something went wrong. Please try again.");
       }
     } finally {
       setSubmitting(false);
@@ -97,7 +98,7 @@ export default function LoginPage() {
                   autoComplete="email"
                   className={`pl-10 h-12 bg-muted/50 border-border focus:border-primary transition-colors ${errors.email ? "border-destructive focus:border-destructive" : ""}`}
                   value={email}
-                  onChange={(e) => { setEmail(e.target.value); setErrors((p) => ({ ...p, email: undefined })); }}
+                  onChange={(e) => { setEmail(e.target.value); setErrors((p) => ({ ...p, email: undefined })); setAuthError(""); }}
                 />
               </div>
               {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
@@ -116,7 +117,7 @@ export default function LoginPage() {
                   autoComplete="current-password"
                   className={`pl-10 pr-10 h-12 bg-muted/50 border-border focus:border-primary transition-colors ${errors.password ? "border-destructive focus:border-destructive" : ""}`}
                   value={password}
-                  onChange={(e) => { setPassword(e.target.value); setErrors((p) => ({ ...p, password: undefined })); }}
+                  onChange={(e) => { setPassword(e.target.value); setErrors((p) => ({ ...p, password: undefined })); setAuthError(""); }}
                 />
                 <button
                   type="button"
@@ -128,6 +129,13 @@ export default function LoginPage() {
               </div>
               {errors.password && <p className="text-xs text-destructive">{errors.password}</p>}
             </div>
+
+            {authError && (
+              <div className="flex items-center gap-2 rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-2.5 text-sm text-destructive">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {authError}
+              </div>
+            )}
 
             <Button
               type="submit"
