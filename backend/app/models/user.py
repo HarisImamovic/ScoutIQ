@@ -41,6 +41,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    scouting_reports = relationship(
+        "ScoutingReport",
+        back_populates="scout",
+        cascade="all, delete-orphan",
+    )
 
 
 class RefreshToken(Base):

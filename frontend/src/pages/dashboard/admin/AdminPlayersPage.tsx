@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   useReactTable, getCoreRowModel, getSortedRowModel,
   getFilteredRowModel, getPaginationRowModel,
@@ -14,43 +14,45 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Users } from "lucide-react";
+import client from "@/api/client";
 
 interface Player {
-  id: number;
-  name: string;
+  id: string;
+  first_name: string;
+  last_name: string;
+  date_of_birth: string | null;
+  nationality: string | null;
   position: string;
-  age: number;
-  club: string;
-  country: string;
-  league: string;
-  rating: number;
-  status: "Active" | "Injured" | "On Loan" | "Free Agent";
+  club_name: string | null;
+  market_value: number | null;
+  status: string;
+  created_at: string;
 }
 
-const initialPlayers: Player[] = [
-  { id: 1,  name: "Lamine Yamal",          position: "RW",  age: 18, club: "FC Barcelona",    country: "Spain",        league: "La Liga",        rating: 92, status: "Active"    },
-  { id: 2,  name: "Florian Wirtz",          position: "AM",  age: 20, club: "B. Leverkusen",   country: "Germany",      league: "Bundesliga",     rating: 90, status: "Active"    },
-  { id: 3,  name: "Endrick",                position: "ST",  age: 18, club: "Real Madrid",     country: "Brazil",       league: "La Liga",        rating: 85, status: "Active"    },
-  { id: 4,  name: "Mathys Tel",             position: "CF",  age: 19, club: "Bayern Munich",   country: "France",       league: "Bundesliga",     rating: 84, status: "Active"    },
-  { id: 5,  name: "Gavi",                   position: "CM",  age: 21, club: "FC Barcelona",    country: "Spain",        league: "La Liga",        rating: 87, status: "Injured"   },
-  { id: 6,  name: "Jude Bellingham",        position: "AM",  age: 22, club: "Real Madrid",     country: "England",      league: "La Liga",        rating: 93, status: "Active"    },
-  { id: 7,  name: "Bukayo Saka",            position: "RW",  age: 23, club: "Arsenal",         country: "England",      league: "Premier League", rating: 91, status: "Active"    },
-  { id: 8,  name: "Phil Foden",             position: "AM",  age: 24, club: "Manchester City", country: "England",      league: "Premier League", rating: 90, status: "Active"    },
-  { id: 9,  name: "Pedri",                  position: "CM",  age: 22, club: "FC Barcelona",    country: "Spain",        league: "La Liga",        rating: 89, status: "Active"    },
-  { id: 10, name: "Vinicius Jr",            position: "LW",  age: 24, club: "Real Madrid",     country: "Brazil",       league: "La Liga",        rating: 94, status: "Active"    },
-  { id: 11, name: "Erling Haaland",         position: "ST",  age: 24, club: "Manchester City", country: "Norway",       league: "Premier League", rating: 95, status: "Active"    },
-  { id: 12, name: "Khvicha Kvaratskhelia",  position: "LW",  age: 23, club: "PSG",             country: "Georgia",      league: "Ligue 1",        rating: 88, status: "Active"    },
-  { id: 13, name: "Alex Johnson",           position: "CAM", age: 23, club: "SC Freiburg",     country: "England",      league: "Bundesliga",     rating: 74, status: "Active"    },
-  { id: 14, name: "Rayan Cherki",           position: "AM",  age: 21, club: "Borussia Dortmund", country: "France",     league: "Bundesliga",     rating: 83, status: "Active"    },
-  { id: 15, name: "Warren Zaïre-Emery",     position: "CM",  age: 18, club: "PSG",             country: "France",       league: "Ligue 1",        rating: 82, status: "On Loan"   },
-];
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-const positions = ["GK","CB","LB","RB","CDM","CM","AM","CAM","LW","RW","CF","ST"];
-const statusColors: Record<Player["status"], string> = {
-  Active:     "bg-primary/10 text-primary border-primary/20",
-  Injured:    "bg-destructive/10 text-destructive border-destructive/20",
-  "On Loan":  "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-  "Free Agent": "bg-purple-500/10 text-purple-500 border-purple-500/20",
+const formatDate = (dt: string) =>
+  new Date(dt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+
+const calcAge = (dob: string | null): number | null => {
+  if (!dob) return null;
+  const birth = new Date(dob);
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  if (now < new Date(now.getFullYear(), birth.getMonth(), birth.getDate())) age--;
+  return age;
+};
+
+const formatValue = (v: number | null): string => {
+  if (v == null) return "—";
+  if (v >= 1_000_000) return `€${(v / 1_000_000).toFixed(0)}M`;
+  if (v >= 1_000) return `€${(v / 1_000).toFixed(0)}K`;
+  return `€${v}`;
+};
+
+const statusColors: Record<string, string> = {
+  Active:  "bg-primary/10 text-primary border-primary/20",
+  Injured: "bg-destructive/10 text-destructive border-destructive/20",
 };
 
 function SortIcon({ d }: { d: "asc" | "desc" | false }) {
@@ -58,10 +60,13 @@ function SortIcon({ d }: { d: "asc" | "desc" | false }) {
   return d === "asc" ? <ArrowUp className="w-3.5 h-3.5 ml-1 text-primary" /> : <ArrowDown className="w-3.5 h-3.5 ml-1 text-primary" />;
 }
 
-const emptyForm = { name: "", position: "ST", age: "", club: "", country: "", league: "", rating: "", status: "Active" as Player["status"] };
+const positions = ["GK","CB","LB","RB","CDM","CM","AM","CAM","LW","RW","CF","ST"];
+const emptyForm = { first_name: "", last_name: "", position: "ST", nationality: "", club_name: "", status: "active" };
 
 export default function AdminPlayersPage() {
-  const [players, setPlayers] = useState<Player[]>(initialPlayers);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [posFilter, setPosFilter] = useState("all");
@@ -69,11 +74,19 @@ export default function AdminPlayersPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Player | null>(null);
   const [form, setForm] = useState(emptyForm);
-  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  useEffect(() => {
+    client.get<{ items: Player[]; total: number }>("/admin/players")
+      .then(({ data }) => setPlayers(data.items))
+      .catch(() => setError("Failed to load players."))
+      .finally(() => setLoading(false));
+  }, []);
 
   const filtered = useMemo(() => players.filter((p) => {
     const q = globalFilter.toLowerCase();
-    const matchSearch = !q || p.name.toLowerCase().includes(q) || p.club.toLowerCase().includes(q) || p.country.toLowerCase().includes(q);
+    const name = `${p.first_name} ${p.last_name}`.toLowerCase();
+    const matchSearch = !q || name.includes(q) || (p.club_name ?? "").toLowerCase().includes(q) || (p.nationality ?? "").toLowerCase().includes(q);
     const matchPos = posFilter === "all" || p.position === posFilter;
     const matchStatus = statusFilter === "all" || p.status === statusFilter;
     return matchSearch && matchPos && matchStatus;
@@ -81,7 +94,8 @@ export default function AdminPlayersPage() {
 
   const columns: ColumnDef<Player>[] = useMemo(() => [
     {
-      accessorKey: "name",
+      id: "name",
+      accessorFn: (p) => `${p.first_name} ${p.last_name}`,
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
           Player <SortIcon d={column.getIsSorted()} />
@@ -89,8 +103,8 @@ export default function AdminPlayersPage() {
       ),
       cell: ({ row }) => (
         <div>
-          <div className="font-medium">{row.original.name}</div>
-          <div className="text-xs text-muted-foreground">{row.original.country}</div>
+          <div className="font-medium">{row.original.first_name} {row.original.last_name}</div>
+          <div className="text-xs text-muted-foreground">{row.original.nationality ?? "—"}</div>
         </div>
       ),
     },
@@ -100,36 +114,39 @@ export default function AdminPlayersPage() {
       cell: ({ getValue }) => <Badge variant="outline" className="text-xs">{getValue() as string}</Badge>,
     },
     {
-      accessorKey: "age",
+      id: "age",
+      accessorFn: (p) => calcAge(p.date_of_birth),
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
           Age <SortIcon d={column.getIsSorted()} />
         </button>
       ),
+      cell: ({ getValue }) => <span>{(getValue() as number | null) ?? "—"}</span>,
     },
     {
-      accessorKey: "club",
+      accessorKey: "club_name",
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
           Club <SortIcon d={column.getIsSorted()} />
         </button>
       ),
+      cell: ({ getValue }) => <span>{(getValue() as string | null) ?? "—"}</span>,
     },
     {
-      accessorKey: "rating",
+      accessorKey: "market_value",
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-          Rating <SortIcon d={column.getIsSorted()} />
+          Value <SortIcon d={column.getIsSorted()} />
         </button>
       ),
-      cell: ({ getValue }) => <span className="font-display font-bold text-primary">{getValue() as number}</span>,
+      cell: ({ getValue }) => <span className="font-display font-bold text-primary">{formatValue(getValue() as number | null)}</span>,
     },
     {
       accessorKey: "status",
       header: "Status",
       cell: ({ getValue }) => {
-        const v = getValue() as Player["status"];
-        return <Badge variant="outline" className={statusColors[v]}>{v}</Badge>;
+        const v = capitalize(getValue() as string);
+        return <Badge variant="outline" className={statusColors[v] ?? "bg-muted text-muted-foreground"}>{v}</Badge>;
       },
     },
     {
@@ -158,21 +175,27 @@ export default function AdminPlayersPage() {
   const openCreate = () => { setEditTarget(null); setForm(emptyForm); setModalOpen(true); };
   const openEdit = (p: Player) => {
     setEditTarget(p);
-    setForm({ name: p.name, position: p.position, age: String(p.age), club: p.club, country: p.country, league: p.league, rating: String(p.rating), status: p.status });
+    setForm({ first_name: p.first_name, last_name: p.last_name, position: p.position, nationality: p.nationality ?? "", club_name: p.club_name ?? "", status: p.status });
     setModalOpen(true);
   };
   const handleSave = () => {
-    const entry = { name: form.name, position: form.position, age: Number(form.age), club: form.club, country: form.country, league: form.league, rating: Number(form.rating), status: form.status };
     if (editTarget) {
-      setPlayers((prev) => prev.map((p) => p.id === editTarget.id ? { ...p, ...entry } : p));
+      setPlayers((prev) => prev.map((p) => p.id === editTarget.id ? { ...p, ...form } : p));
     } else {
-      setPlayers((prev) => [...prev, { id: Date.now(), ...entry }]);
+      setPlayers((prev) => [...prev, { id: crypto.randomUUID(), ...form, date_of_birth: null, market_value: null, created_at: new Date().toISOString() }]);
     }
     setModalOpen(false);
   };
   const handleDelete = () => {
     if (deleteId !== null) { setPlayers((p) => p.filter((pl) => pl.id !== deleteId)); setDeleteId(null); }
   };
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64 text-muted-foreground">Loading players…</div>
+  );
+  if (error) return (
+    <div className="flex items-center justify-center h-64 text-destructive">{error}</div>
+  );
 
   return (
     <div className="space-y-6">
@@ -187,10 +210,10 @@ export default function AdminPlayersPage() {
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Total",      value: players.length },
-          { label: "Active",     value: players.filter((p) => p.status === "Active").length },
-          { label: "Injured",    value: players.filter((p) => p.status === "Injured").length },
-          { label: "Free Agents",value: players.filter((p) => p.status === "Free Agent").length },
+          { label: "Total",   value: players.length },
+          { label: "Active",  value: players.filter((p) => p.status === "active").length },
+          { label: "Injured", value: players.filter((p) => p.status === "injured").length },
+          { label: "Clubs",   value: new Set(players.map((p) => p.club_name).filter(Boolean)).size },
         ].map((s) => (
           <Card key={s.label} className="hover-lift">
             <CardContent className="pt-4 pb-3">
@@ -206,7 +229,7 @@ export default function AdminPlayersPage() {
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search by name, club or country..." className="pl-10 bg-muted/50" value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} />
+          <Input placeholder="Search by name, club or nationality..." className="pl-10 bg-muted/50" value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} />
         </div>
         <Select value={posFilter} onValueChange={setPosFilter}>
           <SelectTrigger className="w-full sm:w-44 bg-muted/50"><SelectValue placeholder="All Positions" /></SelectTrigger>
@@ -219,10 +242,8 @@ export default function AdminPlayersPage() {
           <SelectTrigger className="w-full sm:w-40 bg-muted/50"><SelectValue placeholder="All Statuses" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="Injured">Injured</SelectItem>
-            <SelectItem value="On Loan">On Loan</SelectItem>
-            <SelectItem value="Free Agent">Free Agent</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="injured">Injured</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -276,39 +297,35 @@ export default function AdminPlayersPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle className="font-display">{editTarget ? "Edit Player" : "Add Player"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-2"><Label>Full Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="bg-muted/50" /></div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2"><Label>First Name *</Label><Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} className="bg-muted/50" /></div>
+              <div className="space-y-2"><Label>Last Name *</Label><Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} className="bg-muted/50" /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2"><Label>Position</Label>
                 <Select value={form.position} onValueChange={(v) => setForm({ ...form, position: v })}>
                   <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
                   <SelectContent>{positions.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2"><Label>Age</Label><Input type="number" min={15} max={45} value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} className="bg-muted/50" /></div>
-              <div className="space-y-2"><Label>Rating</Label><Input type="number" min={1} max={100} value={form.rating} onChange={(e) => setForm({ ...form, rating: e.target.value })} className="bg-muted/50" /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>Club</Label><Input value={form.club} onChange={(e) => setForm({ ...form, club: e.target.value })} className="bg-muted/50" /></div>
-              <div className="space-y-2"><Label>Country</Label><Input value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} className="bg-muted/50" /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>League</Label><Input value={form.league} onChange={(e) => setForm({ ...form, league: e.target.value })} className="bg-muted/50" /></div>
               <div className="space-y-2"><Label>Status</Label>
-                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as Player["status"] })}>
+                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
                   <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Active">Active</SelectItem>
-                    <SelectItem value="Injured">Injured</SelectItem>
-                    <SelectItem value="On Loan">On Loan</SelectItem>
-                    <SelectItem value="Free Agent">Free Agent</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="injured">Injured</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2"><Label>Club</Label><Input value={form.club_name} onChange={(e) => setForm({ ...form, club_name: e.target.value })} className="bg-muted/50" /></div>
+              <div className="space-y-2"><Label>Nationality</Label><Input value={form.nationality} onChange={(e) => setForm({ ...form, nationality: e.target.value })} className="bg-muted/50" /></div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button variant="hero" onClick={handleSave} disabled={!form.name.trim()}>{editTarget ? "Save Changes" : "Add Player"}</Button>
+            <Button variant="hero" onClick={handleSave} disabled={!form.first_name.trim()}>{editTarget ? "Save Changes" : "Add Player"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

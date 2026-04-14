@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   useReactTable, getCoreRowModel, getSortedRowModel,
   getFilteredRowModel, getPaginationRowModel,
@@ -14,38 +14,25 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Building2 } from "lucide-react";
+import client from "@/api/client";
 
 interface Club {
-  id: number;
+  id: string;
   name: string;
   country: string;
   league: string;
-  scouts: number;
-  players: number;
-  status: "Active" | "Pending" | "Suspended";
-  joinedAt: string;
+  scout_count: number;
+  player_count: number;
+  status: string;
+  created_at: string;
 }
 
-const initialClubs: Club[] = [
-  { id: 1,  name: "Bayern Munich",      country: "Germany",  league: "Bundesliga",     scouts: 12, players: 28, status: "Active",    joinedAt: "2025-08-01" },
-  { id: 2,  name: "FC Barcelona",       country: "Spain",    league: "La Liga",        scouts: 15, players: 26, status: "Active",    joinedAt: "2025-08-05" },
-  { id: 3,  name: "Manchester City",    country: "England",  league: "Premier League", scouts: 10, players: 27, status: "Active",    joinedAt: "2025-08-10" },
-  { id: 4,  name: "PSG",               country: "France",   league: "Ligue 1",        scouts: 8,  players: 25, status: "Pending",   joinedAt: "2025-09-01" },
-  { id: 5,  name: "SC Freiburg",        country: "Germany",  league: "Bundesliga",     scouts: 5,  players: 28, status: "Active",    joinedAt: "2025-09-10" },
-  { id: 6,  name: "Arsenal",            country: "England",  league: "Premier League", scouts: 9,  players: 26, status: "Active",    joinedAt: "2025-09-15" },
-  { id: 7,  name: "Real Madrid",        country: "Spain",    league: "La Liga",        scouts: 14, players: 27, status: "Active",    joinedAt: "2025-09-20" },
-  { id: 8,  name: "B. Leverkusen",      country: "Germany",  league: "Bundesliga",     scouts: 7,  players: 24, status: "Active",    joinedAt: "2025-10-01" },
-  { id: 9,  name: "Liverpool",          country: "England",  league: "Premier League", scouts: 11, players: 26, status: "Active",    joinedAt: "2025-10-05" },
-  { id: 10, name: "Atletico Madrid",    country: "Spain",    league: "La Liga",        scouts: 8,  players: 25, status: "Active",    joinedAt: "2025-10-10" },
-  { id: 11, name: "Borussia Dortmund",  country: "Germany",  league: "Bundesliga",     scouts: 6,  players: 27, status: "Active",    joinedAt: "2025-10-15" },
-  { id: 12, name: "Juventus",           country: "Italy",    league: "Serie A",        scouts: 7,  players: 26, status: "Pending",   joinedAt: "2025-11-01" },
-  { id: 13, name: "AC Milan",           country: "Italy",    league: "Serie A",        scouts: 6,  players: 25, status: "Active",    joinedAt: "2025-11-05" },
-  { id: 14, name: "Monaco",             country: "France",   league: "Ligue 1",        scouts: 4,  players: 23, status: "Active",    joinedAt: "2025-11-10" },
-  { id: 15, name: "Ajax",               country: "Netherlands", league: "Eredivisie",  scouts: 5,  players: 25, status: "Suspended", joinedAt: "2025-08-20" },
-];
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-const leagues = ["Bundesliga", "La Liga", "Premier League", "Ligue 1", "Serie A", "Eredivisie", "Other"];
-const statusColors: Record<Club["status"], string> = {
+const formatDate = (dt: string) =>
+  new Date(dt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+
+const statusColors: Record<string, string> = {
   Active:    "bg-primary/10 text-primary border-primary/20",
   Pending:   "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
   Suspended: "bg-destructive/10 text-destructive border-destructive/20",
@@ -56,10 +43,12 @@ function SortIcon({ d }: { d: "asc" | "desc" | false }) {
   return d === "asc" ? <ArrowUp className="w-3.5 h-3.5 ml-1 text-primary" /> : <ArrowDown className="w-3.5 h-3.5 ml-1 text-primary" />;
 }
 
-const emptyForm = { name: "", country: "", league: "Bundesliga", scouts: "", players: "", status: "Active" as Club["status"] };
+const emptyForm = { name: "", country: "", league: "Bundesliga", status: "active" };
 
 export default function AdminClubsPage() {
-  const [clubs, setClubs] = useState<Club[]>(initialClubs);
+  const [clubs, setClubs] = useState<Club[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -67,7 +56,16 @@ export default function AdminClubsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Club | null>(null);
   const [form, setForm] = useState(emptyForm);
-  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  useEffect(() => {
+    client.get<{ items: Club[]; total: number }>("/admin/clubs")
+      .then(({ data }) => setClubs(data.items))
+      .catch(() => setError("Failed to load clubs."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const leagues = useMemo(() => Array.from(new Set(clubs.map((c) => c.league).filter(Boolean))).sort(), [clubs]);
 
   const filtered = useMemo(() => clubs.filter((c) => {
     const q = globalFilter.toLowerCase();
@@ -95,10 +93,10 @@ export default function AdminClubsPage() {
     {
       accessorKey: "league",
       header: "League",
-      cell: ({ getValue }) => <span className="text-sm">{getValue() as string}</span>,
+      cell: ({ getValue }) => <span className="text-sm">{(getValue() as string) || "—"}</span>,
     },
     {
-      accessorKey: "scouts",
+      accessorKey: "scout_count",
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
           Scouts <SortIcon d={column.getIsSorted()} />
@@ -106,7 +104,7 @@ export default function AdminClubsPage() {
       ),
     },
     {
-      accessorKey: "players",
+      accessorKey: "player_count",
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
           Players <SortIcon d={column.getIsSorted()} />
@@ -117,18 +115,18 @@ export default function AdminClubsPage() {
       accessorKey: "status",
       header: "Status",
       cell: ({ getValue }) => {
-        const v = getValue() as Club["status"];
-        return <Badge variant="outline" className={statusColors[v]}>{v}</Badge>;
+        const v = capitalize(getValue() as string);
+        return <Badge variant="outline" className={statusColors[v] ?? ""}>{v}</Badge>;
       },
     },
     {
-      accessorKey: "joinedAt",
+      accessorKey: "created_at",
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
           Joined <SortIcon d={column.getIsSorted()} />
         </button>
       ),
-      cell: ({ getValue }) => <span className="text-muted-foreground text-xs">{getValue() as string}</span>,
+      cell: ({ getValue }) => <span className="text-muted-foreground text-xs">{formatDate(getValue() as string)}</span>,
     },
     {
       id: "actions",
@@ -156,21 +154,27 @@ export default function AdminClubsPage() {
   const openCreate = () => { setEditTarget(null); setForm(emptyForm); setModalOpen(true); };
   const openEdit = (c: Club) => {
     setEditTarget(c);
-    setForm({ name: c.name, country: c.country, league: c.league, scouts: String(c.scouts), players: String(c.players), status: c.status });
+    setForm({ name: c.name, country: c.country, league: c.league, status: c.status });
     setModalOpen(true);
   };
   const handleSave = () => {
-    const entry = { name: form.name, country: form.country, league: form.league, scouts: Number(form.scouts), players: Number(form.players), status: form.status };
     if (editTarget) {
-      setClubs((p) => p.map((c) => c.id === editTarget.id ? { ...c, ...entry } : c));
+      setClubs((p) => p.map((c) => c.id === editTarget.id ? { ...c, ...form } : c));
     } else {
-      setClubs((p) => [...p, { id: Date.now(), ...entry, joinedAt: new Date().toISOString().slice(0, 10) }]);
+      setClubs((p) => [...p, { id: crypto.randomUUID(), ...form, scout_count: 0, player_count: 0, created_at: new Date().toISOString() }]);
     }
     setModalOpen(false);
   };
   const handleDelete = () => {
     if (deleteId !== null) { setClubs((p) => p.filter((c) => c.id !== deleteId)); setDeleteId(null); }
   };
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64 text-muted-foreground">Loading clubs…</div>
+  );
+  if (error) return (
+    <div className="flex items-center justify-center h-64 text-destructive">{error}</div>
+  );
 
   return (
     <div className="space-y-6">
@@ -185,10 +189,10 @@ export default function AdminClubsPage() {
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Total", value: clubs.length },
-          { label: "Active", value: clubs.filter((c) => c.status === "Active").length },
-          { label: "Pending", value: clubs.filter((c) => c.status === "Pending").length },
-          { label: "Suspended", value: clubs.filter((c) => c.status === "Suspended").length },
+          { label: "Total",     value: clubs.length },
+          { label: "Active",    value: clubs.filter((c) => c.status === "active").length },
+          { label: "Pending",   value: clubs.filter((c) => c.status === "pending").length },
+          { label: "Suspended", value: clubs.filter((c) => c.status === "suspended").length },
         ].map((s) => (
           <Card key={s.label} className="hover-lift">
             <CardContent className="pt-4 pb-3">
@@ -217,9 +221,9 @@ export default function AdminClubsPage() {
           <SelectTrigger className="w-full sm:w-36 bg-muted/50"><SelectValue placeholder="All Statuses" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="Pending">Pending</SelectItem>
-            <SelectItem value="Suspended">Suspended</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="suspended">Suspended</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -276,22 +280,17 @@ export default function AdminClubsPage() {
             <div className="space-y-2"><Label>Club Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="bg-muted/50" /></div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2"><Label>Country</Label><Input value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} className="bg-muted/50" /></div>
-              <div className="space-y-2"><Label>League</Label>
-                <Select value={form.league} onValueChange={(v) => setForm({ ...form, league: v })}>
-                  <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
-                  <SelectContent>{leagues.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
+              <div className="space-y-2"><Label>League</Label><Input value={form.league} onChange={(e) => setForm({ ...form, league: e.target.value })} className="bg-muted/50" /></div>
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-2"><Label>Scouts</Label><Input type="number" min={0} value={form.scouts} onChange={(e) => setForm({ ...form, scouts: e.target.value })} className="bg-muted/50" /></div>
-              <div className="space-y-2"><Label>Players</Label><Input type="number" min={0} value={form.players} onChange={(e) => setForm({ ...form, players: e.target.value })} className="bg-muted/50" /></div>
-              <div className="space-y-2"><Label>Status</Label>
-                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as Club["status"] })}>
-                  <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="Active">Active</SelectItem><SelectItem value="Pending">Pending</SelectItem><SelectItem value="Suspended">Suspended</SelectItem></SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2"><Label>Status</Label>
+              <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+                <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="suspended">Suspended</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>

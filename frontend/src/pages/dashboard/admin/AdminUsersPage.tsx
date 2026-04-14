@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   useReactTable, getCoreRowModel, getSortedRowModel,
   getFilteredRowModel, getPaginationRowModel,
@@ -14,39 +14,36 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Users } from "lucide-react";
+import client from "@/api/client";
 
 interface User {
-  id: number;
-  name: string;
+  id: string;
   email: string;
+  first_name: string;
+  last_name: string;
   role: string;
-  club: string;
-  status: "Active" | "Inactive";
-  createdAt: string;
+  club_name: string | null;
+  status: string;
+  created_at: string;
 }
 
-const initialUsers: User[] = [
-  { id: 1, name: "Marcus Weber",    email: "m.weber@scoutiq.com",    role: "Scout",        club: "Bayern Munich",    status: "Active",   createdAt: "2025-09-01" },
-  { id: 2, name: "Carlos Mendez",   email: "c.mendez@scoutiq.com",   role: "Scout",        club: "FC Barcelona",     status: "Active",   createdAt: "2025-09-03" },
-  { id: 3, name: "Alex Johnson",    email: "alex@scoutiq.com",       role: "Player",       club: "SC Freiburg",      status: "Active",   createdAt: "2025-09-10" },
-  { id: 4, name: "Sarah Klein",     email: "s.klein@scoutiq.com",    role: "Club Admin",   club: "Bayern Munich",    status: "Active",   createdAt: "2025-09-12" },
-  { id: 5, name: "James Wright",    email: "j.wright@scoutiq.com",   role: "Scout",        club: "Manchester City",  status: "Inactive", createdAt: "2025-09-15" },
-  { id: 6, name: "Lena Fischer",    email: "l.fischer@scoutiq.com",  role: "Club Admin",   club: "B. Leverkusen",   status: "Active",   createdAt: "2025-10-01" },
-  { id: 7, name: "João Pereira",    email: "j.pereira@scoutiq.com",  role: "Scout",        club: "PSG",              status: "Active",   createdAt: "2025-10-05" },
-  { id: 8, name: "Emma Collins",    email: "e.collins@scoutiq.com",  role: "Player",       club: "Arsenal",          status: "Active",   createdAt: "2025-10-08" },
-  { id: 9, name: "Riku Mäkinen",    email: "r.makinen@scoutiq.com",  role: "Scout",        club: "Manchester City",  status: "Active",   createdAt: "2025-10-12" },
-  { id: 10, name: "Sofia Rossi",    email: "s.rossi@scoutiq.com",    role: "Club Admin",   club: "Juventus",         status: "Inactive", createdAt: "2025-10-20" },
-  { id: 11, name: "David Park",     email: "d.park@scoutiq.com",     role: "Player",       club: "Real Madrid",      status: "Active",   createdAt: "2025-11-01" },
-  { id: 12, name: "Ana Kovač",      email: "a.kovac@scoutiq.com",    role: "Scout",        club: "FC Barcelona",     status: "Active",   createdAt: "2025-11-05" },
-  { id: 13, name: "Tom Brennan",    email: "t.brennan@scoutiq.com",  role: "Player",       club: "Arsenal",          status: "Active",   createdAt: "2025-11-10" },
-  { id: 14, name: "Mia Hoffmann",   email: "m.hoffmann@scoutiq.com", role: "Club Admin",   club: "Bayern Munich",    status: "Active",   createdAt: "2025-11-15" },
-  { id: 15, name: "System Admin",   email: "admin@scoutiq.com",      role: "Global Admin", club: "—",               status: "Active",   createdAt: "2025-08-01" },
-];
+const roleLabel: Record<string, string> = {
+  player: "Player",
+  scout: "Scout",
+  club_admin: "Club Admin",
+  global_admin: "Global Admin",
+};
 
-const roles = ["Player", "Scout", "Club Admin", "Global Admin"];
-const statusColors: Record<User["status"], string> = {
-  Active: "bg-primary/10 text-primary border-primary/20",
-  Inactive: "bg-muted text-muted-foreground border-muted-foreground/20",
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+const formatDate = (dt: string) =>
+  new Date(dt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+
+const statusColors: Record<string, string> = {
+  Active:    "bg-primary/10 text-primary border-primary/20",
+  Inactive:  "bg-muted text-muted-foreground border-muted-foreground/20",
+  Pending:   "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
+  Suspended: "bg-destructive/10 text-destructive border-destructive/20",
 };
 
 function SortIcon({ d }: { d: "asc" | "desc" | false }) {
@@ -56,10 +53,12 @@ function SortIcon({ d }: { d: "asc" | "desc" | false }) {
     : <ArrowDown className="w-3.5 h-3.5 ml-1 text-primary" />;
 }
 
-const emptyForm = { name: "", email: "", role: "Scout", club: "", status: "Active" as User["status"] };
+const emptyForm = { first_name: "", last_name: "", email: "", role: "scout", club_name: "", status: "active" };
 
 export default function AdminUsersPage() {
-  const [users, setUsers] = useState<User[]>(initialUsers);
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
@@ -67,11 +66,19 @@ export default function AdminUsersPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<User | null>(null);
   const [form, setForm] = useState(emptyForm);
-  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  useEffect(() => {
+    client.get<{ items: User[]; total: number }>("/admin/users")
+      .then(({ data }) => setUsers(data.items))
+      .catch(() => setError("Failed to load users."))
+      .finally(() => setLoading(false));
+  }, []);
 
   const filtered = useMemo(() => users.filter((u) => {
     const q = globalFilter.toLowerCase();
-    const matchSearch = !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.club.toLowerCase().includes(q);
+    const name = `${u.first_name} ${u.last_name}`.toLowerCase();
+    const matchSearch = !q || name.includes(q) || u.email.toLowerCase().includes(q) || (u.club_name ?? "").toLowerCase().includes(q);
     const matchRole = roleFilter === "all" || u.role === roleFilter;
     const matchStatus = statusFilter === "all" || u.status === statusFilter;
     return matchSearch && matchRole && matchStatus;
@@ -79,7 +86,8 @@ export default function AdminUsersPage() {
 
   const columns: ColumnDef<User>[] = useMemo(() => [
     {
-      accessorKey: "name",
+      id: "name",
+      accessorFn: (u) => `${u.first_name} ${u.last_name}`,
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
           Name <SortIcon d={column.getIsSorted()} />
@@ -87,7 +95,7 @@ export default function AdminUsersPage() {
       ),
       cell: ({ row }) => (
         <div>
-          <div className="font-medium">{row.original.name}</div>
+          <div className="font-medium">{row.original.first_name} {row.original.last_name}</div>
           <div className="text-xs text-muted-foreground">{row.original.email}</div>
         </div>
       ),
@@ -95,32 +103,37 @@ export default function AdminUsersPage() {
     {
       accessorKey: "role",
       header: "Role",
-      cell: ({ getValue }) => <Badge variant="secondary" className="text-xs bg-muted">{getValue() as string}</Badge>,
+      cell: ({ getValue }) => (
+        <Badge variant="secondary" className="text-xs bg-muted">
+          {roleLabel[getValue() as string] ?? getValue() as string}
+        </Badge>
+      ),
     },
     {
-      accessorKey: "club",
+      accessorKey: "club_name",
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
           Club <SortIcon d={column.getIsSorted()} />
         </button>
       ),
+      cell: ({ getValue }) => <span>{(getValue() as string | null) ?? "—"}</span>,
     },
     {
       accessorKey: "status",
       header: "Status",
       cell: ({ getValue }) => {
-        const v = getValue() as User["status"];
-        return <Badge variant="outline" className={statusColors[v]}>{v}</Badge>;
+        const v = capitalize(getValue() as string);
+        return <Badge variant="outline" className={statusColors[v] ?? ""}>{v}</Badge>;
       },
     },
     {
-      accessorKey: "createdAt",
+      accessorKey: "created_at",
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
           Joined <SortIcon d={column.getIsSorted()} />
         </button>
       ),
-      cell: ({ getValue }) => <span className="text-muted-foreground text-xs">{getValue() as string}</span>,
+      cell: ({ getValue }) => <span className="text-muted-foreground text-xs">{formatDate(getValue() as string)}</span>,
     },
     {
       id: "actions",
@@ -149,20 +162,27 @@ export default function AdminUsersPage() {
   const openCreate = () => { setEditTarget(null); setForm(emptyForm); setModalOpen(true); };
   const openEdit = (u: User) => {
     setEditTarget(u);
-    setForm({ name: u.name, email: u.email, role: u.role, club: u.club, status: u.status });
+    setForm({ first_name: u.first_name, last_name: u.last_name, email: u.email, role: u.role, club_name: u.club_name ?? "", status: u.status });
     setModalOpen(true);
   };
   const handleSave = () => {
     if (editTarget) {
       setUsers((p) => p.map((u) => u.id === editTarget.id ? { ...u, ...form } : u));
     } else {
-      setUsers((p) => [...p, { id: Date.now(), ...form, createdAt: new Date().toISOString().slice(0, 10) }]);
+      setUsers((p) => [...p, { id: crypto.randomUUID(), ...form, created_at: new Date().toISOString() }]);
     }
     setModalOpen(false);
   };
   const handleDelete = () => {
     if (deleteId !== null) { setUsers((p) => p.filter((u) => u.id !== deleteId)); setDeleteId(null); }
   };
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64 text-muted-foreground">Loading users…</div>
+  );
+  if (error) return (
+    <div className="flex items-center justify-center h-64 text-destructive">{error}</div>
+  );
 
   return (
     <div className="space-y-6">
@@ -177,10 +197,10 @@ export default function AdminUsersPage() {
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Total", value: users.length },
-          { label: "Active", value: users.filter((u) => u.status === "Active").length },
-          { label: "Scouts", value: users.filter((u) => u.role === "Scout").length },
-          { label: "Players", value: users.filter((u) => u.role === "Player").length },
+          { label: "Total",   value: users.length },
+          { label: "Active",  value: users.filter((u) => u.status === "active").length },
+          { label: "Scouts",  value: users.filter((u) => u.role === "scout").length },
+          { label: "Players", value: users.filter((u) => u.role === "player").length },
         ].map((s) => (
           <Card key={s.label} className="hover-lift">
             <CardContent className="pt-4 pb-3">
@@ -202,15 +222,20 @@ export default function AdminUsersPage() {
           <SelectTrigger className="w-full sm:w-44 bg-muted/50"><SelectValue placeholder="All Roles" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Roles</SelectItem>
-            {roles.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+            <SelectItem value="player">Player</SelectItem>
+            <SelectItem value="scout">Scout</SelectItem>
+            <SelectItem value="club_admin">Club Admin</SelectItem>
+            <SelectItem value="global_admin">Global Admin</SelectItem>
           </SelectContent>
         </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-full sm:w-36 bg-muted/50"><SelectValue placeholder="All Statuses" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="Inactive">Inactive</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="inactive">Inactive</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="suspended">Suspended</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -264,27 +289,40 @@ export default function AdminUsersPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle className="font-display">{editTarget ? "Edit User" : "Add User"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-2"><Label>Full Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="bg-muted/50" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2"><Label>First Name *</Label><Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} className="bg-muted/50" /></div>
+              <div className="space-y-2"><Label>Last Name *</Label><Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} className="bg-muted/50" /></div>
+            </div>
             <div className="space-y-2"><Label>Email *</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="bg-muted/50" /></div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2"><Label>Role</Label>
                 <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
                   <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
-                  <SelectContent>{roles.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                    <SelectItem value="player">Player</SelectItem>
+                    <SelectItem value="scout">Scout</SelectItem>
+                    <SelectItem value="club_admin">Club Admin</SelectItem>
+                    <SelectItem value="global_admin">Global Admin</SelectItem>
+                  </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2"><Label>Status</Label>
-                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as User["status"] })}>
+                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
                   <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="Active">Active</SelectItem><SelectItem value="Inactive">Inactive</SelectItem></SelectContent>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="suspended">Suspended</SelectItem>
+                  </SelectContent>
                 </Select>
               </div>
             </div>
-            <div className="space-y-2"><Label>Club</Label><Input placeholder="e.g. Bayern Munich" value={form.club} onChange={(e) => setForm({ ...form, club: e.target.value })} className="bg-muted/50" /></div>
+            <div className="space-y-2"><Label>Club</Label><Input placeholder="e.g. Bayern Munich" value={form.club_name} onChange={(e) => setForm({ ...form, club_name: e.target.value })} className="bg-muted/50" /></div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button variant="hero" onClick={handleSave} disabled={!form.name.trim() || !form.email.trim()}>{editTarget ? "Save Changes" : "Add User"}</Button>
+            <Button variant="hero" onClick={handleSave} disabled={!form.first_name.trim() || !form.email.trim()}>{editTarget ? "Save Changes" : "Add User"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
