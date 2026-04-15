@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { toast } from "sonner";
 import {
   useReactTable,
   getCoreRowModel,
@@ -18,52 +19,38 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  FileText, Eye, Trash2, ArrowUpDown, ArrowUp, ArrowDown,
-  ChevronLeft, ChevronRight, Search, CheckCircle, Clock, XCircle, Star
+  FileText, Eye, Edit2, Trash2, ArrowUpDown, ArrowUp, ArrowDown,
+  ChevronLeft, ChevronRight, Search, CheckCircle, Clock, XCircle, Star,
 } from "lucide-react";
+import client from "@/api/client";
 
-type ReportStatus = "Draft" | "Submitted" | "Approved" | "Rejected";
+type ReportStatus = "draft" | "submitted" | "approved" | "rejected";
 
 interface Report {
-  id: number;
-  player: string;
+  id: string;
+  player_name: string;
   position: string;
-  club: string;
-  scout: string;
-  scoutClub: string;
+  scout_name: string;
   rating: number;
   status: ReportStatus;
-  date: string;
-  notes: string;
+  notes: string | null;
+  created_at: string;
 }
 
-const initialReports: Report[] = [
-  { id: 1, player: "Lamine Yamal", position: "RW", club: "FC Barcelona", scout: "Carlos Mendez", scoutClub: "Real Madrid", rating: 91, status: "Approved", date: "2025-03-10", notes: "Exceptional dribbling and vision. Strong candidate for next season." },
-  { id: 2, player: "Kobbie Mainoo", position: "CM", club: "Man United", scout: "James Harrison", scoutClub: "Arsenal FC", rating: 82, status: "Submitted", date: "2025-03-14", notes: "Composed under pressure, good passing range. Worth monitoring closely." },
-  { id: 3, player: "Florian Wirtz", position: "AM", club: "Bayer Leverkusen", scout: "Hans Müller", scoutClub: "Bayern Munich", rating: 89, status: "Approved", date: "2025-03-05", notes: "World-class technical ability. Contract situation needs watching." },
-  { id: 4, player: "Gavi", position: "CM", club: "FC Barcelona", scout: "Carlos Mendez", scoutClub: "Real Madrid", rating: 85, status: "Draft", date: "2025-03-18", notes: "Still recovering from injury. Talent undeniable but fitness concerns remain." },
-  { id: 5, player: "Pedri", position: "CM", club: "FC Barcelona", scout: "Marco Rossi", scoutClub: "Juventus FC", rating: 88, status: "Approved", date: "2025-02-28", notes: "Full recovery from injury. Back to best form and leading midfield." },
-  { id: 6, player: "Bukayo Saka", position: "RW", club: "Arsenal FC", scout: "James Harrison", scoutClub: "Arsenal FC", rating: 90, status: "Approved", date: "2025-02-20", notes: "Consistent performer across all metrics. Key player for the season." },
-  { id: 7, player: "Jude Bellingham", position: "AM", club: "Real Madrid", scout: "Carlos Mendez", scoutClub: "Real Madrid", rating: 93, status: "Submitted", date: "2025-03-20", notes: "Dominant in all phases. Goals and assists at a historic rate for position." },
-  { id: 8, player: "Warren Zaïre-Emery", position: "CM", club: "PSG", scout: "Pierre Dupont", scoutClub: "Olympique Lyon", rating: 83, status: "Draft", date: "2025-03-22", notes: "Promising young midfielder. Needs consistent minutes to develop further." },
-  { id: 9, player: "Endrick", position: "ST", club: "Real Madrid", scout: "Carlos Mendez", scoutClub: "Real Madrid", rating: 80, status: "Rejected", date: "2025-03-01", notes: "Needs more adaptation time to the European game. Revisit in six months." },
-  { id: 10, player: "Alejandro Garnacho", position: "LW", club: "Man United", scout: "James Harrison", scoutClub: "Arsenal FC", rating: 81, status: "Submitted", date: "2025-03-16", notes: "Creative and direct. Transfer window interest expected from top clubs." },
-  { id: 11, player: "Mathys Tel", position: "ST", club: "Bayern Munich", scout: "Hans Müller", scoutClub: "Bayern Munich", rating: 79, status: "Draft", date: "2025-03-25", notes: "Rotation role limiting development. Loan move could accelerate growth." },
-  { id: 12, player: "Bradley Barcola", position: "LW", club: "PSG", scout: "Pierre Dupont", scoutClub: "Olympique Lyon", rating: 84, status: "Approved", date: "2025-03-08", notes: "Pace and directness a constant threat. Improving final-third decision-making." },
-  { id: 13, player: "Savinho", position: "RW", club: "Man City", scout: "James Harrison", scoutClub: "Arsenal FC", rating: 83, status: "Submitted", date: "2025-03-19", notes: "Dynamic winger with excellent ball carrying. Defensive work rate improving." },
-  { id: 14, player: "Manu Koné", position: "CM", club: "Roma", scout: "Marco Rossi", scoutClub: "Juventus FC", rating: 80, status: "Rejected", date: "2025-02-15", notes: "Good athleticism but not the profile we need. Reported for completeness." },
-  { id: 15, player: "Antonio Silva", position: "CB", club: "Benfica", scout: "Carlos Mendez", scoutClub: "Real Madrid", rating: 85, status: "Approved", date: "2025-03-12", notes: "Dominant in the air and strong in duels. Potential elite CB for next decade." },
-];
+const POSITIONS = ["GK", "CB", "LB", "RB", "CDM", "CM", "AM", "CAM", "LW", "RW", "CF", "ST"];
+
+const formatDate = (dt: string) =>
+  new Date(dt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
 const statusConfig: Record<ReportStatus, { label: string; className: string; icon: React.ElementType }> = {
-  Draft:     { label: "Draft",     className: "bg-muted text-muted-foreground",           icon: Clock },
-  Submitted: { label: "Submitted", className: "bg-blue-500/20 text-blue-400",             icon: FileText },
-  Approved:  { label: "Approved",  className: "bg-emerald-500/20 text-emerald-400",       icon: CheckCircle },
-  Rejected:  { label: "Rejected",  className: "bg-destructive/20 text-destructive",       icon: XCircle },
+  draft:     { label: "Draft",     className: "bg-muted text-muted-foreground",      icon: Clock },
+  submitted: { label: "Submitted", className: "bg-blue-500/20 text-blue-400",        icon: FileText },
+  approved:  { label: "Approved",  className: "bg-emerald-500/20 text-emerald-400",  icon: CheckCircle },
+  rejected:  { label: "Rejected",  className: "bg-destructive/20 text-destructive",  icon: XCircle },
 };
 
 function StatusBadge({ status }: { status: ReportStatus }) {
-  const cfg = statusConfig[status];
+  const cfg = statusConfig[status] ?? statusConfig.draft;
   return <Badge className={`gap-1 ${cfg.className}`}><cfg.icon className="w-3 h-3" />{cfg.label}</Badge>;
 }
 
@@ -74,51 +61,91 @@ function SortIcon({ column }: { column: any }) {
   return <ArrowUpDown className="w-3.5 h-3.5 ml-1 inline opacity-40" />;
 }
 
+function CharCount({ value, max }: { value: string; max: number }) {
+  const len = value.length;
+  const pct = len / max;
+  const color = pct >= 1 ? "text-destructive" : pct >= 0.8 ? "text-yellow-500" : "text-muted-foreground";
+  return <span className={`text-xs ${color}`}>{len}/{max}</span>;
+}
+
 const columnHelper = createColumnHelper<Report>();
 
 export default function AdminReportsPage() {
-  const [reports, setReports] = useState<Report[]>(initialReports);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [positionFilter, setPositionFilter] = useState("all");
 
+  const [scouts, setScouts] = useState<{ id: string; name: string }[]>([]);
+  const [saving, setSaving] = useState(false);
+
   const [viewOpen, setViewOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Report | null>(null);
-
-  const [form, setForm] = useState<Partial<Report>>({});
+  const [form, setForm] = useState<Partial<Report> & { scout_id?: string }>({});
   const [isCreating, setIsCreating] = useState(false);
+
+  useEffect(() => {
+    client.get<{ id: string; name: string }[]>("/admin/scouts")
+      .then(({ data }) => setScouts(data))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    client.get<{ items: Report[]; total: number }>("/admin/reports")
+      .then(({ data }) => setReports(data.items))
+      .catch(() => setError("Failed to load reports."))
+      .finally(() => setLoading(false));
+  }, []);
 
   const positions = useMemo(() => Array.from(new Set(reports.map(r => r.position))).sort(), [reports]);
 
   const filtered = useMemo(() => reports.filter(r => {
     const q = globalFilter.toLowerCase();
-    const matchSearch = !q || r.player.toLowerCase().includes(q) || r.scout.toLowerCase().includes(q) || r.club.toLowerCase().includes(q) || r.scoutClub.toLowerCase().includes(q);
+    const matchSearch = !q || r.player_name.toLowerCase().includes(q) || r.scout_name.toLowerCase().includes(q);
     const matchStatus = statusFilter === "all" || r.status === statusFilter;
     const matchPos = positionFilter === "all" || r.position === positionFilter;
     return matchSearch && matchStatus && matchPos;
   }), [reports, globalFilter, statusFilter, positionFilter]);
 
+  const openCreate = () => {
+    setForm({ player_name: "", position: "ST", scout_id: "none", rating: 75, status: "draft", notes: "" });
+    setIsCreating(true);
+    setEditOpen(true);
+  };
+
+  const openEdit = (report: Report) => {
+    setForm({ ...report });
+    setIsCreating(false);
+    setEditOpen(true);
+  };
+
+  const playerNameLen = form.player_name?.length ?? 0;
+  const notesLen = form.notes?.length ?? 0;
+  const hasErrors =
+    !form.player_name?.trim() || playerNameLen > 200 ||
+    !form.position?.trim() ||
+    (isCreating && (!form.scout_id || form.scout_id === "none")) ||
+    notesLen > 2000 ||
+    !form.rating || (form.rating as number) < 1 || (form.rating as number) > 100;
+
   const columns = useMemo(() => [
-    columnHelper.accessor("player", {
+    columnHelper.accessor("player_name", {
       header: ({ column }) => <button onClick={() => column.toggleSorting()} className="flex items-center">Player <SortIcon column={column} /></button>,
       cell: info => (
         <div>
           <div className="font-medium text-sm">{info.getValue()}</div>
-          <div className="text-xs text-muted-foreground">{info.row.original.position} · {info.row.original.club}</div>
+          <div className="text-xs text-muted-foreground">{info.row.original.position}</div>
         </div>
       ),
     }),
-    columnHelper.accessor("scout", {
+    columnHelper.accessor("scout_name", {
       header: ({ column }) => <button onClick={() => column.toggleSorting()} className="flex items-center">Scout <SortIcon column={column} /></button>,
-      cell: info => (
-        <div>
-          <div className="text-sm">{info.getValue()}</div>
-          <div className="text-xs text-muted-foreground">{info.row.original.scoutClub}</div>
-        </div>
-      ),
+      cell: info => <span className="text-sm">{info.getValue()}</span>,
     }),
     columnHelper.accessor("rating", {
       header: ({ column }) => <button onClick={() => column.toggleSorting()} className="flex items-center">Rating <SortIcon column={column} /></button>,
@@ -134,9 +161,9 @@ export default function AdminReportsPage() {
       header: "Status",
       cell: info => <StatusBadge status={info.getValue()} />,
     }),
-    columnHelper.accessor("date", {
+    columnHelper.accessor("created_at", {
       header: ({ column }) => <button onClick={() => column.toggleSorting()} className="flex items-center">Date <SortIcon column={column} /></button>,
-      cell: info => <span className="text-sm text-muted-foreground">{new Date(info.getValue()).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>,
+      cell: info => <span className="text-sm text-muted-foreground">{formatDate(info.getValue())}</span>,
     }),
     columnHelper.display({
       id: "actions",
@@ -145,6 +172,9 @@ export default function AdminReportsPage() {
         <div className="flex gap-1">
           <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { setSelected(row.original); setViewOpen(true); }}>
             <Eye className="w-4 h-4" />
+          </Button>
+          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(row.original)}>
+            <Edit2 className="w-4 h-4" />
           </Button>
           <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(row.original.id)}>
             <Trash2 className="w-4 h-4" />
@@ -166,39 +196,67 @@ export default function AdminReportsPage() {
     initialState: { pagination: { pageSize: 10 } },
   });
 
-  const openCreate = () => {
-    setForm({ player: "", position: "", club: "", scout: "", scoutClub: "", rating: 75, status: "Draft", date: new Date().toISOString().split("T")[0], notes: "" });
-    setIsCreating(true);
-    setEditOpen(true);
-  };
-
-  const openEdit = (report: Report) => {
-    setForm({ ...report });
-    setIsCreating(false);
-    setEditOpen(true);
-  };
-
-  const saveReport = () => {
-    if (isCreating) {
-      const newReport = { ...form, id: Date.now() } as Report;
-      setReports(prev => [newReport, ...prev]);
-    } else {
-      setReports(prev => prev.map(r => r.id === form.id ? { ...r, ...form } as Report : r));
+  const saveReport = async () => {
+    setSaving(true);
+    try {
+      if (!isCreating) {
+        const { data } = await client.put<Report>(`/admin/reports/${form.id}`, {
+          player_name: form.player_name,
+          position: form.position,
+          rating: form.rating,
+          status: form.status,
+          notes: form.notes || null,
+        });
+        setReports(prev => prev.map(r => r.id === form.id ? data : r));
+        setEditOpen(false);
+        toast.success("Report updated successfully.");
+      } else {
+        const { data } = await client.post<Report>("/admin/reports", {
+          scout_id: form.scout_id === "none" ? null : form.scout_id,
+          player_name: form.player_name,
+          position: form.position,
+          rating: form.rating,
+          status: form.status,
+          notes: form.notes || null,
+        });
+        setReports(prev => [data, ...prev]);
+        setEditOpen(false);
+        toast.success("Report created successfully.");
+      }
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      if (err.response?.status === 404) toast.error(typeof detail === "string" ? detail : "Scout not found.");
+      else toast.error(typeof detail === "string" ? detail : isCreating ? "Failed to create report." : "Failed to update report.");
+    } finally {
+      setSaving(false);
     }
-    setEditOpen(false);
   };
 
-  const deleteReport = (id: number) => {
-    setReports(prev => prev.filter(r => r.id !== id));
+  const deleteReport = async (id: string) => {
     setDeleteId(null);
+    setReports(prev => prev.filter(r => r.id !== id));
+    try {
+      await client.delete(`/admin/reports/${id}`);
+      toast.success("Report deleted.");
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Failed to delete report.");
+    }
   };
 
   const counts = useMemo(() => ({
-    total: reports.length,
-    submitted: reports.filter(r => r.status === "Submitted").length,
-    approved: reports.filter(r => r.status === "Approved").length,
-    rejected: reports.filter(r => r.status === "Rejected").length,
+    total:     reports.length,
+    submitted: reports.filter(r => r.status === "submitted").length,
+    approved:  reports.filter(r => r.status === "approved").length,
+    rejected:  reports.filter(r => r.status === "rejected").length,
   }), [reports]);
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64 text-muted-foreground">Loading reports…</div>
+  );
+  if (error) return (
+    <div className="flex items-center justify-center h-64 text-destructive">{error}</div>
+  );
 
   return (
     <div className="space-y-6">
@@ -213,10 +271,10 @@ export default function AdminReportsPage() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Total Reports", value: counts.total, icon: FileText, color: "text-primary" },
-          { label: "Pending Review", value: counts.submitted, icon: Clock, color: "text-blue-400" },
-          { label: "Approved", value: counts.approved, icon: CheckCircle, color: "text-emerald-400" },
-          { label: "Rejected", value: counts.rejected, icon: XCircle, color: "text-destructive" },
+          { label: "Total Reports",  value: counts.total,     icon: FileText,    color: "text-primary" },
+          { label: "Pending Review", value: counts.submitted, icon: Clock,       color: "text-blue-400" },
+          { label: "Approved",       value: counts.approved,  icon: CheckCircle, color: "text-emerald-400" },
+          { label: "Rejected",       value: counts.rejected,  icon: XCircle,     color: "text-destructive" },
         ].map(card => (
           <div key={card.label} className="bg-card border border-border rounded-xl p-4 flex items-center gap-4">
             <div className={`p-2 rounded-lg bg-muted ${card.color}`}>
@@ -234,16 +292,16 @@ export default function AdminReportsPage() {
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search player, scout, club..." className="pl-10" value={globalFilter} onChange={e => setGlobalFilter(e.target.value)} />
+          <Input placeholder="Search player or scout..." className="pl-10" value={globalFilter} onChange={e => setGlobalFilter(e.target.value)} />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="All Statuses" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="Draft">Draft</SelectItem>
-            <SelectItem value="Submitted">Submitted</SelectItem>
-            <SelectItem value="Approved">Approved</SelectItem>
-            <SelectItem value="Rejected">Rejected</SelectItem>
+            <SelectItem value="draft">Draft</SelectItem>
+            <SelectItem value="submitted">Submitted</SelectItem>
+            <SelectItem value="approved">Approved</SelectItem>
+            <SelectItem value="rejected">Rejected</SelectItem>
           </SelectContent>
         </Select>
         <Select value={positionFilter} onValueChange={setPositionFilter}>
@@ -289,7 +347,7 @@ export default function AdminReportsPage() {
         {/* Pagination */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-border">
           <span className="text-sm text-muted-foreground">
-            Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()} · {filtered.length} reports
+            Page {table.getState().pagination.pageIndex + 1} of {Math.max(1, table.getPageCount())} · {filtered.length} reports
           </span>
           <div className="flex gap-1">
             <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
@@ -320,8 +378,8 @@ export default function AdminReportsPage() {
             <div className="space-y-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="font-semibold text-lg">{selected.player}</h3>
-                  <p className="text-sm text-muted-foreground">{selected.position} · {selected.club}</p>
+                  <h3 className="font-semibold text-lg">{selected.player_name}</h3>
+                  <p className="text-sm text-muted-foreground">{selected.position}</p>
                 </div>
                 <div className="text-right">
                   <div className="flex items-center gap-1 justify-end">
@@ -335,18 +393,19 @@ export default function AdminReportsPage() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="bg-muted/30 rounded-lg p-3">
                   <p className="text-xs text-muted-foreground mb-1">Scout</p>
-                  <p className="font-medium">{selected.scout}</p>
-                  <p className="text-xs text-muted-foreground">{selected.scoutClub}</p>
+                  <p className="font-medium">{selected.scout_name}</p>
                 </div>
                 <div className="bg-muted/30 rounded-lg p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Date Submitted</p>
-                  <p className="font-medium">{new Date(selected.date).toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })}</p>
+                  <p className="text-xs text-muted-foreground mb-1">Date</p>
+                  <p className="font-medium">{formatDate(selected.created_at)}</p>
                 </div>
               </div>
-              <div className="bg-muted/30 rounded-lg p-3">
-                <p className="text-xs text-muted-foreground mb-1">Scout Notes</p>
-                <p className="text-sm">{selected.notes}</p>
-              </div>
+              {selected.notes && (
+                <div className="bg-muted/30 rounded-lg p-3">
+                  <p className="text-xs text-muted-foreground mb-1">Scout Notes</p>
+                  <p className="text-sm">{selected.notes}</p>
+                </div>
+              )}
             </div>
           )}
           <DialogFooter>
@@ -367,60 +426,99 @@ export default function AdminReportsPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Player Name</Label>
-                <Input value={form.player ?? ""} onChange={e => setForm(f => ({ ...f, player: e.target.value }))} placeholder="Player name" />
+                <div className="flex items-center justify-between">
+                  <Label>Player Name</Label>
+                  <CharCount value={form.player_name ?? ""} max={200} />
+                </div>
+                <Input
+                  value={form.player_name ?? ""}
+                  onChange={e => setForm(f => ({ ...f, player_name: e.target.value }))}
+                  placeholder="Player name"
+                  className={playerNameLen > 200 ? "border-destructive focus-visible:ring-destructive" : ""}
+                />
+                {playerNameLen > 200 && <p className="text-xs text-destructive">Exceeds 200 character limit</p>}
               </div>
               <div className="space-y-1.5">
-                <Label>Position</Label>
-                <Input value={form.position ?? ""} onChange={e => setForm(f => ({ ...f, position: e.target.value }))} placeholder="e.g. CM, ST, CB" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Player Club</Label>
-                <Input value={form.club ?? ""} onChange={e => setForm(f => ({ ...f, club: e.target.value }))} placeholder="Current club" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Scout Name</Label>
-                <Input value={form.scout ?? ""} onChange={e => setForm(f => ({ ...f, scout: e.target.value }))} placeholder="Scout name" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Scout Club</Label>
-                <Input value={form.scoutClub ?? ""} onChange={e => setForm(f => ({ ...f, scoutClub: e.target.value }))} placeholder="Scout's club" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Rating (1–100)</Label>
-                <Input type="number" min={1} max={100} value={form.rating ?? ""} onChange={e => setForm(f => ({ ...f, rating: Number(e.target.value) }))} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Status</Label>
-                <Select value={form.status ?? "Draft"} onValueChange={v => setForm(f => ({ ...f, status: v as ReportStatus }))}>
+                <div className="flex items-center justify-between">
+                  <Label>Position</Label>
+                </div>
+                <Select value={form.position ?? "ST"} onValueChange={v => setForm(f => ({ ...f, position: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Draft">Draft</SelectItem>
-                    <SelectItem value="Submitted">Submitted</SelectItem>
-                    <SelectItem value="Approved">Approved</SelectItem>
-                    <SelectItem value="Rejected">Rejected</SelectItem>
+                    {POSITIONS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Date</Label>
-                <Input type="date" value={form.date ?? ""} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+                <Label>{isCreating ? "Scout *" : "Scout"}</Label>
+                {isCreating ? (
+                  <Select value={form.scout_id ?? "none"} onValueChange={v => setForm(f => ({ ...f, scout_id: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Select scout" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Select scout…</SelectItem>
+                      {scouts.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={form.scout_name ?? ""} readOnly className="bg-muted/50 opacity-70" />
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Rating (1–100)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={form.rating ?? ""}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    if (raw === "") {
+                      setForm(f => ({ ...f, rating: undefined as any }));
+                    } else {
+                      const parsed = parseInt(raw, 10);
+                      if (!isNaN(parsed)) {
+                        e.target.value = String(parsed); // strip leading zeros in DOM
+                        setForm(f => ({ ...f, rating: parsed }));
+                      }
+                    }
+                  }}
+                />
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Notes</Label>
-              <Textarea rows={4} value={form.notes ?? ""} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Scout observations and analysis..." />
+              <Label>Status</Label>
+              <Select value={form.status ?? "draft"} onValueChange={v => setForm(f => ({ ...f, status: v as ReportStatus }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="submitted">Submitted</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label>Notes</Label>
+                <CharCount value={form.notes ?? ""} max={2000} />
+              </div>
+              <Textarea
+                rows={4}
+                value={form.notes ?? ""}
+                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Scout observations and analysis..."
+                className={notesLen > 2000 ? "border-destructive focus-visible:ring-destructive" : ""}
+              />
+              {notesLen > 2000 && <p className="text-xs text-destructive">Exceeds 2000 character limit</p>}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button onClick={saveReport}>{isCreating ? "Add Report" : "Save Changes"}</Button>
+            <Button onClick={saveReport} disabled={saving || hasErrors}>
+              {saving ? "Saving…" : isCreating ? "Add Report" : "Save Changes"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -434,7 +532,10 @@ export default function AdminReportsPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleteId !== null && deleteReport(deleteId)}>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteId !== null && deleteReport(deleteId)}
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

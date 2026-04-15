@@ -12,11 +12,13 @@ from app.config import get_settings
 settings = get_settings()
 
 _PASSWORD_RE = re.compile(
-    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&_\-#])[A-Za-z\d@$!%*?&_\-#]{8,72}$"
+    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d\s])[\x20-\x7E]{8,72}$"
 )
 
 
 def validate_password_strength(password: str) -> bool:
+    if "\x00" in password:
+        return False
     return bool(_PASSWORD_RE.match(password))
 
 

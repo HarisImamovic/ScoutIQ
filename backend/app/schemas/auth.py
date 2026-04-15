@@ -40,6 +40,37 @@ class RegisterRequest(BaseModel):
         return stripped
 
 
+class UpdateProfileRequest(BaseModel):
+    email: EmailStr
+    first_name: str
+    last_name: str
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def name_not_blank(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("This field cannot be blank.")
+        if len(stripped) > 100:
+            raise ValueError("This field cannot exceed 100 characters.")
+        return stripped
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_meets_policy(cls, v: str) -> str:
+        if not validate_password_strength(v):
+            raise ValueError(
+                "Password must be 8–72 characters and contain at least one uppercase letter, "
+                "one lowercase letter, one digit, and one special character."
+            )
+        return v
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str

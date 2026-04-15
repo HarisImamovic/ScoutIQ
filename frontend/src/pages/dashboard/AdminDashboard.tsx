@@ -1,163 +1,242 @@
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useMemo, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Area, AreaChart, CartesianGrid, XAxis } from "recharts";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Building2, Users, Shield, BarChart3, Plus, Edit2, Trash2, UserCheck } from "lucide-react";
+  Building2, Users, FileText, Search, ChevronLeft, ChevronRight, Star, Shield,
+} from "lucide-react";
+import client from "@/api/client";
 
-/* ─── Types ─── */
-interface Club { id: number; name: string; country: string; scouts: number; status: "Active" | "Pending" | "Suspended" }
-interface User { id: number; name: string; email: string; role: string; club: string; status: "Active" | "Inactive" }
-interface AdminPlayer { id: number; name: string; position: string; age: number; club: string; country: string; rating: number }
-interface AdminReport { id: number; player: string; scout: string; club: string; status: string; date: string; rating: number }
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface ApiClub {
+  id: string; name: string; country: string; league: string;
+  scout_count: number; player_count: number; status: string; created_at: string;
+}
+interface ApiUser {
+  id: string; email: string; first_name: string; last_name: string;
+  role: string; club_name: string | null; status: string; created_at: string;
+}
+interface ApiPlayer {
+  id: string; first_name: string; last_name: string; date_of_birth: string | null;
+  nationality: string | null; position: string; club_name: string | null;
+  market_value: number | null; status: string; created_at: string;
+}
+interface ApiReport {
+  id: string; player_name: string; position: string; scout_name: string;
+  rating: number; status: string; notes: string | null; created_at: string;
+}
 
-/* ─── Mock data ─── */
-const initClubs: Club[] = [
-  { id: 1, name: "Bayern Munich", country: "Germany", scouts: 12, status: "Active" },
-  { id: 2, name: "FC Barcelona", country: "Spain", scouts: 15, status: "Active" },
-  { id: 3, name: "Manchester City", country: "England", scouts: 10, status: "Active" },
-  { id: 4, name: "PSG", country: "France", scouts: 8, status: "Pending" },
-  { id: 5, name: "SC Freiburg", country: "Germany", scouts: 5, status: "Active" },
-];
-
-const initUsers: User[] = [
-  { id: 1, name: "Marcus Weber", email: "m.weber@scoutiq.com", role: "Scout", club: "Bayern Munich", status: "Active" },
-  { id: 2, name: "Carlos Mendez", email: "c.mendez@scoutiq.com", role: "Scout", club: "FC Barcelona", status: "Active" },
-  { id: 3, name: "Alex Johnson", email: "alex@scoutiq.com", role: "Player", club: "SC Freiburg", status: "Active" },
-  { id: 4, name: "Sarah Klein", email: "s.klein@scoutiq.com", role: "Club Admin", club: "Bayern Munich", status: "Active" },
-  { id: 5, name: "James Wright", email: "j.wright@scoutiq.com", role: "Scout", club: "Manchester City", status: "Inactive" },
-];
-
-const initPlayers: AdminPlayer[] = [
-  { id: 1, name: "Lamine Yamal", position: "RW", age: 18, club: "FC Barcelona", country: "Spain", rating: 92 },
-  { id: 2, name: "Florian Wirtz", position: "AM", age: 20, club: "B. Leverkusen", country: "Germany", rating: 90 },
-  { id: 3, name: "Erling Haaland", position: "ST", age: 24, club: "Manchester City", country: "Norway", rating: 95 },
-  { id: 4, name: "Vinicius Jr", position: "LW", age: 24, club: "Real Madrid", country: "Brazil", rating: 94 },
-];
-
-const initReports: AdminReport[] = [
-  { id: 1, player: "Lamine Yamal", scout: "Marcus Weber", club: "Bayern Munich", status: "Approved", date: "2026-03-12", rating: 92 },
-  { id: 2, player: "Florian Wirtz", scout: "Carlos Mendez", club: "FC Barcelona", status: "Submitted", date: "2026-03-10", rating: 90 },
-  { id: 3, player: "Endrick", scout: "James Wright", club: "Manchester City", status: "Draft", date: "2026-03-08", rating: 85 },
-];
-
-/* ─── Status colours ─── */
-const clubStatusColors: Record<Club["status"], string> = {
-  Active: "bg-primary/10 text-primary border-primary/20",
-  Pending: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-  Suspended: "bg-destructive/10 text-destructive border-destructive/20",
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const formatDate = (dt: string) =>
+  new Date(dt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+const calcAge = (dob: string | null): string => {
+  if (!dob) return "—";
+  const birth = new Date(dob);
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  if (now < new Date(now.getFullYear(), birth.getMonth(), birth.getDate())) age--;
+  return String(age);
+};
+const formatValue = (v: number | null): string => {
+  if (v == null) return "—";
+  if (v >= 1_000_000) return `€${(v / 1_000_000).toFixed(0)}M`;
+  if (v >= 1_000)     return `€${(v / 1_000).toFixed(0)}K`;
+  return `€${v}`;
 };
 
-const userStatusColors: Record<User["status"], string> = {
-  Active: "bg-primary/10 text-primary border-primary/20",
-  Inactive: "bg-muted text-muted-foreground border-muted-foreground/20",
+const PAGE_SIZE = 10;
+const POSITIONS = ["GK", "CB", "LB", "RB", "CDM", "CM", "AM", "CAM", "LW", "RW", "CF", "ST"];
+
+const STATUS_BADGE: Record<string, string> = {
+  active:    "bg-primary/10 text-primary border-primary/20",
+  pending:   "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
+  suspended: "bg-destructive/10 text-destructive border-destructive/20",
+  inactive:  "bg-muted text-muted-foreground border-muted-foreground/20",
+  injured:   "bg-destructive/10 text-destructive border-destructive/20",
 };
 
-/* ─── Helpers ─── */
-function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+const REPORT_BADGE: Record<string, string> = {
+  draft:     "bg-muted text-muted-foreground",
+  submitted: "bg-blue-500/20 text-blue-400",
+  approved:  "bg-emerald-500/20 text-emerald-400",
+  rejected:  "bg-destructive/20 text-destructive",
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  player: "Player", scout: "Scout", club_admin: "Club Admin", global_admin: "Global Admin",
+};
+
+// ─── Pager ────────────────────────────────────────────────────────────────────
+function Pager({ page, total, onChange }: { page: number; total: number; onChange: (p: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const from  = total === 0 ? 0 : page * PAGE_SIZE + 1;
+  const to    = Math.min((page + 1) * PAGE_SIZE, total);
   return (
-    <div className="flex items-center justify-end gap-1">
-      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit}><Edit2 className="w-3.5 h-3.5" /></Button>
-      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={onDelete}><Trash2 className="w-3.5 h-3.5" /></Button>
+    <div className="flex items-center justify-between pt-3 border-t border-border mt-2">
+      <p className="text-xs text-muted-foreground">
+        {total === 0 ? "No results" : `${from}–${to} of ${total}`}
+      </p>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={() => onChange(page - 1)} disabled={page === 0}>
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
+        <span className="text-xs px-1">{page + 1} / {pages}</span>
+        <Button variant="outline" size="sm" onClick={() => onChange(page + 1)} disabled={page >= pages - 1}>
+          <ChevronRight className="w-4 h-4" />
+        </Button>
+      </div>
     </div>
   );
 }
 
+// ─── Chart config ─────────────────────────────────────────────────────────────
+const chartConfig = {
+  count: { label: "Reports", color: "hsl(var(--primary))" },
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function AdminDashboard() {
-  /* ─── Clubs ─── */
-  const [clubs, setClubs] = useState<Club[]>(initClubs);
-  const [clubModal, setClubModal] = useState(false);
-  const [clubEdit, setClubEdit] = useState<Club | null>(null);
-  const [clubForm, setClubForm] = useState({ name: "", country: "", scouts: "", status: "Active" as Club["status"] });
+  const [clubs,   setClubs]   = useState<ApiClub[]>([]);
+  const [users,   setUsers]   = useState<ApiUser[]>([]);
+  const [players, setPlayers] = useState<ApiPlayer[]>([]);
+  const [reports, setReports] = useState<ApiReport[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  /* ─── Users ─── */
-  const [users, setUsers] = useState<User[]>(initUsers);
-  const [userModal, setUserModal] = useState(false);
-  const [userEdit, setUserEdit] = useState<User | null>(null);
-  const [userForm, setUserForm] = useState({ name: "", email: "", role: "Scout", club: "", status: "Active" as User["status"] });
+  useEffect(() => {
+    Promise.all([
+      client.get<{ items: ApiClub[];   total: number }>("/admin/clubs"),
+      client.get<{ items: ApiUser[];   total: number }>("/admin/users"),
+      client.get<{ items: ApiPlayer[]; total: number }>("/admin/players"),
+      client.get<{ items: ApiReport[]; total: number }>("/admin/reports"),
+    ])
+      .then(([c, u, p, r]) => {
+        setClubs(c.data.items);
+        setUsers(u.data.items);
+        setPlayers(p.data.items);
+        setReports(r.data.items);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
-  /* ─── Players ─── */
-  const [players, setPlayers] = useState<AdminPlayer[]>(initPlayers);
-  const [playerModal, setPlayerModal] = useState(false);
-  const [playerEdit, setPlayerEdit] = useState<AdminPlayer | null>(null);
-  const [playerForm, setPlayerForm] = useState({ name: "", position: "ST", age: "", club: "", country: "", rating: "" });
+  // ── Summary ───────────────────────────────────────────────────────────────
+  const activeScouts = useMemo(
+    () => users.filter(u => u.role === "scout" && u.status === "active").length,
+    [users],
+  );
 
-  /* ─── Reports ─── */
-  const [reports, setReports] = useState<AdminReport[]>(initReports);
+  // ── Chart: reports per month (last 12 months) ─────────────────────────────
+  const chartData = useMemo(() => {
+    const slots: { month: string; key: string; count: number }[] = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(1);
+      d.setMonth(d.getMonth() - i);
+      slots.push({
+        month: d.toLocaleDateString("en-US", { month: "short" }),
+        key:   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        count: 0,
+      });
+    }
+    for (const r of reports) {
+      const d = new Date(r.created_at);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const slot = slots.find(s => s.key === key);
+      if (slot) slot.count++;
+    }
+    return slots;
+  }, [reports]);
 
-  /* ─── Delete ─── */
-  const [deleteTarget, setDeleteTarget] = useState<{ type: string; id: number } | null>(null);
+  // ── Clubs tab ─────────────────────────────────────────────────────────────
+  const [clubSearch, setClubSearch] = useState("");
+  const [clubStatus, setClubStatus] = useState("all");
+  const [clubPage,   setClubPage]   = useState(0);
+  const filteredClubs = useMemo(() =>
+    clubs.filter(c => {
+      const q = clubSearch.toLowerCase();
+      return (
+        (!q || c.name.toLowerCase().includes(q) || c.country.toLowerCase().includes(q)) &&
+        (clubStatus === "all" || c.status === clubStatus)
+      );
+    }), [clubs, clubSearch, clubStatus]);
+  useEffect(() => setClubPage(0), [clubSearch, clubStatus]);
+  const pagedClubs = filteredClubs.slice(clubPage * PAGE_SIZE, (clubPage + 1) * PAGE_SIZE);
 
-  const handleDelete = () => {
-    if (!deleteTarget) return;
-    const { type, id } = deleteTarget;
-    if (type === "club") setClubs((p) => p.filter((c) => c.id !== id));
-    if (type === "user") setUsers((p) => p.filter((u) => u.id !== id));
-    if (type === "player") setPlayers((p) => p.filter((pl) => pl.id !== id));
-    if (type === "report") setReports((p) => p.filter((r) => r.id !== id));
-    setDeleteTarget(null);
-  };
+  // ── Users tab ─────────────────────────────────────────────────────────────
+  const [userSearch, setUserSearch] = useState("");
+  const [userRole,   setUserRole]   = useState("all");
+  const [userStatus, setUserStatus] = useState("all");
+  const [userPage,   setUserPage]   = useState(0);
+  const filteredUsers = useMemo(() =>
+    users.filter(u => {
+      const q    = userSearch.toLowerCase();
+      const name = `${u.first_name} ${u.last_name}`.toLowerCase();
+      return (
+        (!q || name.includes(q) || u.email.toLowerCase().includes(q)) &&
+        (userRole   === "all" || u.role   === userRole) &&
+        (userStatus === "all" || u.status === userStatus)
+      );
+    }), [users, userSearch, userRole, userStatus]);
+  useEffect(() => setUserPage(0), [userSearch, userRole, userStatus]);
+  const pagedUsers = filteredUsers.slice(userPage * PAGE_SIZE, (userPage + 1) * PAGE_SIZE);
 
-  /* ─── Club CRUD ─── */
-  const openClubCreate = () => { setClubEdit(null); setClubForm({ name: "", country: "", scouts: "", status: "Active" }); setClubModal(true); };
-  const openClubEdit = (c: Club) => { setClubEdit(c); setClubForm({ name: c.name, country: c.country, scouts: String(c.scouts), status: c.status }); setClubModal(true); };
-  const saveClub = () => {
-    const entry = { name: clubForm.name, country: clubForm.country, scouts: Number(clubForm.scouts), status: clubForm.status };
-    if (clubEdit) setClubs((p) => p.map((c) => c.id === clubEdit.id ? { ...c, ...entry } : c));
-    else setClubs((p) => [...p, { id: Date.now(), ...entry }]);
-    setClubModal(false);
-  };
+  // ── Players tab ───────────────────────────────────────────────────────────
+  const [playerSearch, setPlayerSearch] = useState("");
+  const [playerPos,    setPlayerPos]    = useState("all");
+  const [playerStatus, setPlayerStatus] = useState("all");
+  const [playerPage,   setPlayerPage]   = useState(0);
+  const filteredPlayers = useMemo(() =>
+    players.filter(p => {
+      const q    = playerSearch.toLowerCase();
+      const name = `${p.first_name} ${p.last_name}`.toLowerCase();
+      return (
+        (!q || name.includes(q) || (p.club_name ?? "").toLowerCase().includes(q) || (p.nationality ?? "").toLowerCase().includes(q)) &&
+        (playerPos    === "all" || p.position === playerPos) &&
+        (playerStatus === "all" || p.status   === playerStatus)
+      );
+    }), [players, playerSearch, playerPos, playerStatus]);
+  useEffect(() => setPlayerPage(0), [playerSearch, playerPos, playerStatus]);
+  const pagedPlayers = filteredPlayers.slice(playerPage * PAGE_SIZE, (playerPage + 1) * PAGE_SIZE);
 
-  /* ─── User CRUD ─── */
-  const openUserCreate = () => { setUserEdit(null); setUserForm({ name: "", email: "", role: "Scout", club: "", status: "Active" }); setUserModal(true); };
-  const openUserEdit = (u: User) => { setUserEdit(u); setUserForm({ name: u.name, email: u.email, role: u.role, club: u.club, status: u.status }); setUserModal(true); };
-  const saveUser = () => {
-    const entry = { name: userForm.name, email: userForm.email, role: userForm.role, club: userForm.club, status: userForm.status };
-    if (userEdit) setUsers((p) => p.map((u) => u.id === userEdit.id ? { ...u, ...entry } : u));
-    else setUsers((p) => [...p, { id: Date.now(), ...entry }]);
-    setUserModal(false);
-  };
+  // ── Reports tab ───────────────────────────────────────────────────────────
+  const [reportSearch, setReportSearch] = useState("");
+  const [reportStatus, setReportStatus] = useState("all");
+  const [reportPage,   setReportPage]   = useState(0);
+  const filteredReports = useMemo(() =>
+    reports.filter(r => {
+      const q = reportSearch.toLowerCase();
+      return (
+        (!q || r.player_name.toLowerCase().includes(q) || r.scout_name.toLowerCase().includes(q)) &&
+        (reportStatus === "all" || r.status === reportStatus)
+      );
+    }), [reports, reportSearch, reportStatus]);
+  useEffect(() => setReportPage(0), [reportSearch, reportStatus]);
+  const pagedReports = filteredReports.slice(reportPage * PAGE_SIZE, (reportPage + 1) * PAGE_SIZE);
 
-  /* ─── Player CRUD ─── */
-  const openPlayerCreate = () => { setPlayerEdit(null); setPlayerForm({ name: "", position: "ST", age: "", club: "", country: "", rating: "" }); setPlayerModal(true); };
-  const openPlayerEdit = (pl: AdminPlayer) => { setPlayerEdit(pl); setPlayerForm({ name: pl.name, position: pl.position, age: String(pl.age), club: pl.club, country: pl.country, rating: String(pl.rating) }); setPlayerModal(true); };
-  const savePlayer = () => {
-    const entry = { name: playerForm.name, position: playerForm.position, age: Number(playerForm.age), club: playerForm.club, country: playerForm.country, rating: Number(playerForm.rating) };
-    if (playerEdit) setPlayers((p) => p.map((pl) => pl.id === playerEdit.id ? { ...pl, ...entry } : pl));
-    else setPlayers((p) => [...p, { id: Date.now(), ...entry }]);
-    setPlayerModal(false);
-  };
-
-  const reportStatusColors: Record<string, string> = {
-    Draft: "",
-    Submitted: "bg-secondary/10 text-secondary border-secondary/20",
-    Approved: "bg-primary/10 text-primary border-primary/20",
-  };
+  if (loading) return (
+    <div className="flex items-center justify-center h-64 text-muted-foreground">Loading dashboard…</div>
+  );
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl md:text-3xl font-display font-bold">Admin Dashboard</h1>
-        <p className="text-muted-foreground mt-1">Platform overview and management</p>
+        <p className="text-muted-foreground mt-1">Platform overview and analytics</p>
       </div>
 
-      {/* Summary stats */}
+      {/* ── Summary cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Total Clubs", value: clubs.length, icon: Building2 },
-          { label: "Total Users", value: users.length + 1200, icon: Users },
-          { label: "Active Scouts", value: users.filter((u) => u.role === "Scout" && u.status === "Active").length + 180, icon: Shield },
-          { label: "Reports/Month", value: reports.length + 320, icon: BarChart3 },
+          { label: "Total Clubs",   value: clubs.length,   icon: Building2 },
+          { label: "Total Users",   value: users.length,   icon: Users },
+          { label: "Active Scouts", value: activeScouts,   icon: Shield },
+          { label: "Total Reports", value: reports.length, icon: FileText },
         ].map((s) => (
           <Card key={s.label} className="hover-lift">
             <CardContent className="pt-6">
@@ -169,304 +248,283 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* CRUD tabs */}
+      {/* ── Reports per month chart ── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">Reports per Month</CardTitle>
+          <CardDescription>Scouting reports submitted over the last 12 months</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ChartContainer config={chartConfig} className="h-[220px] w-full">
+            <AreaChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+              <defs>
+                <linearGradient id="fillCount" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="var(--color-count)" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="var(--color-count)" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
+              <XAxis
+                dataKey="month"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+              />
+              <ChartTooltip content={<ChartTooltipContent />} />
+              <Area
+                type="monotone"
+                dataKey="count"
+                stroke="var(--color-count)"
+                fill="url(#fillCount)"
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4, strokeWidth: 0 }}
+              />
+            </AreaChart>
+          </ChartContainer>
+        </CardContent>
+      </Card>
+
+      {/* ── Data tables ── */}
       <Tabs defaultValue="clubs">
-        <TabsList className="w-full sm:w-auto">
-          <TabsTrigger value="clubs">Clubs</TabsTrigger>
-          <TabsTrigger value="users">Users</TabsTrigger>
-          <TabsTrigger value="players">Players</TabsTrigger>
-          <TabsTrigger value="reports">Reports</TabsTrigger>
+        <TabsList>
+          <TabsTrigger value="clubs">Clubs ({clubs.length})</TabsTrigger>
+          <TabsTrigger value="users">Users ({users.length})</TabsTrigger>
+          <TabsTrigger value="players">Players ({players.length})</TabsTrigger>
+          <TabsTrigger value="reports">Reports ({reports.length})</TabsTrigger>
         </TabsList>
 
-        {/* ── Clubs ── */}
-        <TabsContent value="clubs" className="space-y-4 mt-4">
-          <div className="flex justify-end">
-            <Button variant="hero" size="sm" onClick={openClubCreate}>
-              <Plus className="w-4 h-4 mr-2" /> Add Club
-            </Button>
+        {/* ─ Clubs ─ */}
+        <TabsContent value="clubs" className="space-y-3 mt-4">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                value={clubSearch} onChange={e => setClubSearch(e.target.value)}
+                placeholder="Search by name or country…" className="pl-10 bg-muted/50"
+              />
+            </div>
+            <Select value={clubStatus} onValueChange={setClubStatus}>
+              <SelectTrigger className="w-full sm:w-40 bg-muted/50"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="suspended">Suspended</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium">Club</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium">Country</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium hidden sm:table-cell">Scouts</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium">Status</th>
-                      <th className="text-right py-3 px-2 text-muted-foreground font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {clubs.map((c) => (
+          <Card><CardContent className="pt-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-border">
+                  {["Club", "Country", "League", "Scouts", "Players", "Status"].map(h => (
+                    <th key={h} className="text-left py-3 px-2 text-muted-foreground font-medium whitespace-nowrap">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {pagedClubs.length === 0
+                    ? <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No clubs found</td></tr>
+                    : pagedClubs.map(c => (
                       <tr key={c.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                         <td className="py-3 px-2 font-medium">{c.name}</td>
                         <td className="py-3 px-2 text-muted-foreground">{c.country}</td>
-                        <td className="py-3 px-2 hidden sm:table-cell">{c.scouts}</td>
+                        <td className="py-3 px-2 text-muted-foreground">{c.league || "—"}</td>
+                        <td className="py-3 px-2">{c.scout_count}</td>
+                        <td className="py-3 px-2">{c.player_count}</td>
                         <td className="py-3 px-2">
-                          <Badge variant="outline" className={clubStatusColors[c.status]}>{c.status}</Badge>
-                        </td>
-                        <td className="py-3 px-2">
-                          <RowActions onEdit={() => openClubEdit(c)} onDelete={() => setDeleteTarget({ type: "club", id: c.id })} />
+                          <Badge variant="outline" className={STATUS_BADGE[c.status] ?? ""}>{capitalize(c.status)}</Badge>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+                    ))
+                  }
+                </tbody>
+              </table>
+            </div>
+            <Pager page={clubPage} total={filteredClubs.length} onChange={setClubPage} />
+          </CardContent></Card>
         </TabsContent>
 
-        {/* ── Users ── */}
-        <TabsContent value="users" className="space-y-4 mt-4">
-          <div className="flex justify-end">
-            <Button variant="hero" size="sm" onClick={openUserCreate}>
-              <Plus className="w-4 h-4 mr-2" /> Add User
-            </Button>
+        {/* ─ Users ─ */}
+        <TabsContent value="users" className="space-y-3 mt-4">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                value={userSearch} onChange={e => setUserSearch(e.target.value)}
+                placeholder="Search by name or email…" className="pl-10 bg-muted/50"
+              />
+            </div>
+            <Select value={userRole} onValueChange={setUserRole}>
+              <SelectTrigger className="w-full sm:w-44 bg-muted/50"><SelectValue placeholder="All Roles" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Roles</SelectItem>
+                <SelectItem value="scout">Scout</SelectItem>
+                <SelectItem value="player">Player</SelectItem>
+                <SelectItem value="club_admin">Club Admin</SelectItem>
+                <SelectItem value="global_admin">Global Admin</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={userStatus} onValueChange={setUserStatus}>
+              <SelectTrigger className="w-full sm:w-40 bg-muted/50"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+                <SelectItem value="suspended">Suspended</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium">Name</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium hidden md:table-cell">Email</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium">Role</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium hidden sm:table-cell">Club</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium">Status</th>
-                      <th className="text-right py-3 px-2 text-muted-foreground font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((u) => (
+          <Card><CardContent className="pt-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-border">
+                  {["Name", "Email", "Role", "Club", "Status"].map(h => (
+                    <th key={h} className="text-left py-3 px-2 text-muted-foreground font-medium whitespace-nowrap">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {pagedUsers.length === 0
+                    ? <tr><td colSpan={5} className="text-center py-8 text-muted-foreground">No users found</td></tr>
+                    : pagedUsers.map(u => (
                       <tr key={u.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-                        <td className="py-3 px-2 font-medium">{u.name}</td>
-                        <td className="py-3 px-2 text-muted-foreground hidden md:table-cell">{u.email}</td>
+                        <td className="py-3 px-2 font-medium">{u.first_name} {u.last_name}</td>
+                        <td className="py-3 px-2 text-muted-foreground">{u.email}</td>
                         <td className="py-3 px-2">
-                          <Badge variant="secondary" className="text-xs bg-muted">{u.role}</Badge>
+                          <Badge variant="secondary" className="text-xs bg-muted">{ROLE_LABELS[u.role] ?? u.role}</Badge>
                         </td>
-                        <td className="py-3 px-2 text-muted-foreground hidden sm:table-cell">{u.club}</td>
+                        <td className="py-3 px-2 text-muted-foreground">{u.club_name ?? "—"}</td>
                         <td className="py-3 px-2">
-                          <Badge variant="outline" className={userStatusColors[u.status]}>{u.status}</Badge>
-                        </td>
-                        <td className="py-3 px-2">
-                          <RowActions onEdit={() => openUserEdit(u)} onDelete={() => setDeleteTarget({ type: "user", id: u.id })} />
+                          <Badge variant="outline" className={STATUS_BADGE[u.status] ?? ""}>{capitalize(u.status)}</Badge>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+                    ))
+                  }
+                </tbody>
+              </table>
+            </div>
+            <Pager page={userPage} total={filteredUsers.length} onChange={setUserPage} />
+          </CardContent></Card>
         </TabsContent>
 
-        {/* ── Players ── */}
-        <TabsContent value="players" className="space-y-4 mt-4">
-          <div className="flex justify-end">
-            <Button variant="hero" size="sm" onClick={openPlayerCreate}>
-              <Plus className="w-4 h-4 mr-2" /> Add Player
-            </Button>
+        {/* ─ Players ─ */}
+        <TabsContent value="players" className="space-y-3 mt-4">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                value={playerSearch} onChange={e => setPlayerSearch(e.target.value)}
+                placeholder="Search by name, club or nationality…" className="pl-10 bg-muted/50"
+              />
+            </div>
+            <Select value={playerPos} onValueChange={setPlayerPos}>
+              <SelectTrigger className="w-full sm:w-40 bg-muted/50"><SelectValue placeholder="All Positions" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Positions</SelectItem>
+                {POSITIONS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={playerStatus} onValueChange={setPlayerStatus}>
+              <SelectTrigger className="w-full sm:w-40 bg-muted/50"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="injured">Injured</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium">Player</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium">Pos</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium hidden sm:table-cell">Age</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium hidden md:table-cell">Club</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium hidden lg:table-cell">Country</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium">Rating</th>
-                      <th className="text-right py-3 px-2 text-muted-foreground font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {players.map((p) => (
+          <Card><CardContent className="pt-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-border">
+                  {["Player", "Pos", "Age", "Club", "Value", "Status"].map(h => (
+                    <th key={h} className="text-left py-3 px-2 text-muted-foreground font-medium whitespace-nowrap">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {pagedPlayers.length === 0
+                    ? <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No players found</td></tr>
+                    : pagedPlayers.map(p => (
                       <tr key={p.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-                        <td className="py-3 px-2 font-medium">{p.name}</td>
-                        <td className="py-3 px-2"><Badge variant="outline" className="text-xs">{p.position}</Badge></td>
-                        <td className="py-3 px-2 text-muted-foreground hidden sm:table-cell">{p.age}</td>
-                        <td className="py-3 px-2 text-muted-foreground hidden md:table-cell">{p.club}</td>
-                        <td className="py-3 px-2 text-muted-foreground hidden lg:table-cell">{p.country}</td>
-                        <td className="py-3 px-2 font-display font-bold text-primary">{p.rating}</td>
                         <td className="py-3 px-2">
-                          <RowActions onEdit={() => openPlayerEdit(p)} onDelete={() => setDeleteTarget({ type: "player", id: p.id })} />
+                          <div className="font-medium">{p.first_name} {p.last_name}</div>
+                          <div className="text-xs text-muted-foreground">{p.nationality ?? "—"}</div>
+                        </td>
+                        <td className="py-3 px-2"><Badge variant="outline" className="text-xs">{p.position}</Badge></td>
+                        <td className="py-3 px-2 text-muted-foreground">{calcAge(p.date_of_birth)}</td>
+                        <td className="py-3 px-2 text-muted-foreground">{p.club_name ?? "—"}</td>
+                        <td className="py-3 px-2 font-display font-bold text-primary text-xs">{formatValue(p.market_value)}</td>
+                        <td className="py-3 px-2">
+                          <Badge variant="outline" className={STATUS_BADGE[p.status] ?? ""}>{capitalize(p.status)}</Badge>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+                    ))
+                  }
+                </tbody>
+              </table>
+            </div>
+            <Pager page={playerPage} total={filteredPlayers.length} onChange={setPlayerPage} />
+          </CardContent></Card>
         </TabsContent>
 
-        {/* ── Reports ── */}
-        <TabsContent value="reports" className="space-y-4 mt-4">
-          <Card>
-            <CardContent className="pt-4">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium">Player</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium hidden sm:table-cell">Scout</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium hidden md:table-cell">Club</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium">Rating</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium">Status</th>
-                      <th className="text-left py-3 px-2 text-muted-foreground font-medium hidden lg:table-cell">Date</th>
-                      <th className="text-right py-3 px-2 text-muted-foreground font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reports.map((r) => (
+        {/* ─ Reports ─ */}
+        <TabsContent value="reports" className="space-y-3 mt-4">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                value={reportSearch} onChange={e => setReportSearch(e.target.value)}
+                placeholder="Search by player or scout…" className="pl-10 bg-muted/50"
+              />
+            </div>
+            <Select value={reportStatus} onValueChange={setReportStatus}>
+              <SelectTrigger className="w-full sm:w-44 bg-muted/50"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="draft">Draft</SelectItem>
+                <SelectItem value="submitted">Submitted</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Card><CardContent className="pt-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-border">
+                  {["Player", "Pos", "Scout", "Rating", "Status", "Date"].map(h => (
+                    <th key={h} className="text-left py-3 px-2 text-muted-foreground font-medium whitespace-nowrap">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {pagedReports.length === 0
+                    ? <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No reports found</td></tr>
+                    : pagedReports.map(r => (
                       <tr key={r.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-                        <td className="py-3 px-2 font-medium">{r.player}</td>
-                        <td className="py-3 px-2 text-muted-foreground hidden sm:table-cell">{r.scout}</td>
-                        <td className="py-3 px-2 text-muted-foreground hidden md:table-cell">{r.club}</td>
-                        <td className="py-3 px-2 font-display font-bold text-primary">{r.rating}</td>
+                        <td className="py-3 px-2 font-medium">{r.player_name}</td>
+                        <td className="py-3 px-2"><Badge variant="outline" className="text-xs">{r.position}</Badge></td>
+                        <td className="py-3 px-2 text-muted-foreground">{r.scout_name}</td>
                         <td className="py-3 px-2">
-                          <Badge variant="outline" className={reportStatusColors[r.status]}>{r.status}</Badge>
-                        </td>
-                        <td className="py-3 px-2 text-muted-foreground hidden lg:table-cell">{r.date}</td>
-                        <td className="py-3 px-2">
-                          <div className="flex items-center justify-end">
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteTarget({ type: "report", id: r.id })}>
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
+                          <div className="flex items-center gap-1">
+                            <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
+                            <span className="font-semibold text-primary">{r.rating}</span>
                           </div>
                         </td>
+                        <td className="py-3 px-2">
+                          <Badge className={`text-xs ${REPORT_BADGE[r.status] ?? ""}`}>{capitalize(r.status)}</Badge>
+                        </td>
+                        <td className="py-3 px-2 text-muted-foreground whitespace-nowrap">{formatDate(r.created_at)}</td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+                    ))
+                  }
+                </tbody>
+              </table>
+            </div>
+            <Pager page={reportPage} total={filteredReports.length} onChange={setReportPage} />
+          </CardContent></Card>
         </TabsContent>
       </Tabs>
-
-      {/* Club modal */}
-      <Dialog open={clubModal} onOpenChange={setClubModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-display">{clubEdit ? "Edit Club" : "Add Club"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2"><Label>Club Name *</Label><Input value={clubForm.name} onChange={(e) => setClubForm({ ...clubForm, name: e.target.value })} className="bg-muted/50" /></div>
-            <div className="space-y-2"><Label>Country</Label><Input value={clubForm.country} onChange={(e) => setClubForm({ ...clubForm, country: e.target.value })} className="bg-muted/50" /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>Scouts</Label><Input type="number" min={0} value={clubForm.scouts} onChange={(e) => setClubForm({ ...clubForm, scouts: e.target.value })} className="bg-muted/50" /></div>
-              <div className="space-y-2"><Label>Status</Label>
-                <Select value={clubForm.status} onValueChange={(v) => setClubForm({ ...clubForm, status: v as Club["status"] })}>
-                  <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Active">Active</SelectItem>
-                    <SelectItem value="Pending">Pending</SelectItem>
-                    <SelectItem value="Suspended">Suspended</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setClubModal(false)}>Cancel</Button>
-            <Button variant="hero" onClick={saveClub} disabled={!clubForm.name.trim()}>{clubEdit ? "Save Changes" : "Add Club"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* User modal */}
-      <Dialog open={userModal} onOpenChange={setUserModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-display">{userEdit ? "Edit User" : "Add User"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2"><Label>Full Name *</Label><Input value={userForm.name} onChange={(e) => setUserForm({ ...userForm, name: e.target.value })} className="bg-muted/50" /></div>
-            <div className="space-y-2"><Label>Email *</Label><Input type="email" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} className="bg-muted/50" /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>Role</Label>
-                <Select value={userForm.role} onValueChange={(v) => setUserForm({ ...userForm, role: v })}>
-                  <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Player">Player</SelectItem>
-                    <SelectItem value="Scout">Scout</SelectItem>
-                    <SelectItem value="Club Admin">Club Admin</SelectItem>
-                    <SelectItem value="Global Admin">Global Admin</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2"><Label>Status</Label>
-                <Select value={userForm.status} onValueChange={(v) => setUserForm({ ...userForm, status: v as User["status"] })}>
-                  <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Active">Active</SelectItem>
-                    <SelectItem value="Inactive">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-2"><Label>Club</Label><Input value={userForm.club} onChange={(e) => setUserForm({ ...userForm, club: e.target.value })} className="bg-muted/50" /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setUserModal(false)}>Cancel</Button>
-            <Button variant="hero" onClick={saveUser} disabled={!userForm.name.trim() || !userForm.email.trim()}>{userEdit ? "Save Changes" : "Add User"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Player modal */}
-      <Dialog open={playerModal} onOpenChange={setPlayerModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-display">{playerEdit ? "Edit Player" : "Add Player"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2"><Label>Player Name *</Label><Input value={playerForm.name} onChange={(e) => setPlayerForm({ ...playerForm, name: e.target.value })} className="bg-muted/50" /></div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-2"><Label>Position</Label>
-                <Select value={playerForm.position} onValueChange={(v) => setPlayerForm({ ...playerForm, position: v })}>
-                  <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["GK", "CB", "LB", "RB", "CDM", "CM", "AM", "LW", "RW", "CF", "ST"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2"><Label>Age</Label><Input type="number" min={15} max={45} value={playerForm.age} onChange={(e) => setPlayerForm({ ...playerForm, age: e.target.value })} className="bg-muted/50" /></div>
-              <div className="space-y-2"><Label>Rating</Label><Input type="number" min={1} max={100} value={playerForm.rating} onChange={(e) => setPlayerForm({ ...playerForm, rating: e.target.value })} className="bg-muted/50" /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>Club</Label><Input value={playerForm.club} onChange={(e) => setPlayerForm({ ...playerForm, club: e.target.value })} className="bg-muted/50" /></div>
-              <div className="space-y-2"><Label>Country</Label><Input value={playerForm.country} onChange={(e) => setPlayerForm({ ...playerForm, country: e.target.value })} className="bg-muted/50" /></div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setPlayerModal(false)}>Cancel</Button>
-            <Button variant="hero" onClick={savePlayer} disabled={!playerForm.name.trim()}>{playerEdit ? "Save Changes" : "Add Player"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete confirmation */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete {deleteTarget?.type}</AlertDialogTitle>
-            <AlertDialogDescription>This will permanently delete this record. This action cannot be undone.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

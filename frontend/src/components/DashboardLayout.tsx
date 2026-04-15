@@ -1,16 +1,16 @@
-import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
+import { Outlet, Link, useLocation } from "react-router-dom";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   LayoutDashboard, Users, FileText, Bot, Bell, Settings,
-  Shield, Menu, X, Search, ChevronLeft, Bookmark, Video,
-  DollarSign, Star, UserCog, Building2, CheckSquare
+  Shield, Menu, X, ChevronLeft, Bookmark, Video,
+  DollarSign, Star, Building2, CheckSquare, LogOut
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useRole, UserRole } from "@/contexts/RoleContext";
+import type { UserRole } from "@/contexts/RoleContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 type NavItem = { icon: React.ElementType; label: string; path: string };
 
@@ -74,15 +74,14 @@ export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
-  const navigate = useNavigate();
-  const { role, setRole } = useRole();
+  const { user, logout } = useAuth();
+
+  const role = (user?.role as UserRole) ?? "scout";
+  const userInitials = user
+    ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase()
+    : roleInitials[role];
 
   const navItems = navByRole[role];
-
-  const handleRoleChange = (newRole: UserRole) => {
-    setRole(newRole);
-    navigate(dashboardByRole[newRole]);
-  };
 
   const isActive = (path: string) => {
     if (path === "/dashboard/scout" || path === "/dashboard/player" || path === "/dashboard/club" || path === "/dashboard/admin") {
@@ -130,23 +129,6 @@ export default function DashboardLayout() {
           ))}
         </nav>
 
-        {sidebarOpen && (
-          <div className="p-4 border-t border-border">
-            <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">Preview Role</p>
-            <Select value={role} onValueChange={(v) => handleRoleChange(v as UserRole)}>
-              <SelectTrigger className="w-full bg-muted/50 h-8 text-xs">
-                <UserCog className="w-3.5 h-3.5 mr-1.5" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="player">Player</SelectItem>
-                <SelectItem value="scout">Scout</SelectItem>
-                <SelectItem value="club_admin">Club Admin</SelectItem>
-                <SelectItem value="global_admin">Global Admin</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        )}
       </aside>
 
       {/* Mobile bottom nav */}
@@ -173,14 +155,6 @@ export default function DashboardLayout() {
             <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileOpen(!mobileOpen)}>
               <Menu className="w-5 h-5" />
             </Button>
-            <div className="relative hidden sm:block">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search players, reports..."
-                className="h-9 w-64 rounded-lg bg-muted/50 border border-border pl-10 pr-4 text-sm focus:outline-none focus:border-primary transition-colors"
-              />
-            </div>
           </div>
           <div className="flex items-center gap-2">
             <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
@@ -194,11 +168,21 @@ export default function DashboardLayout() {
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full" />
               </Button>
             </Link>
-            <Avatar className="w-8 h-8 cursor-pointer">
-              <AvatarFallback className="bg-primary/20 text-primary text-sm font-semibold">
-                {roleInitials[role]}
-              </AvatarFallback>
-            </Avatar>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => logout()}
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </Button>
+            <Link to="/dashboard/settings" title="Settings">
+              <Avatar className="w-8 h-8 cursor-pointer">
+                <AvatarFallback className="bg-primary/20 text-primary text-sm font-semibold">
+                  {userInitials}
+                </AvatarFallback>
+              </Avatar>
+            </Link>
           </div>
         </header>
 
@@ -241,21 +225,6 @@ export default function DashboardLayout() {
                 </Link>
               ))}
             </nav>
-            <div className="pt-4 border-t border-border">
-              <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">Preview Role</p>
-              <Select value={role} onValueChange={(v) => { handleRoleChange(v as UserRole); setMobileOpen(false); }}>
-                <SelectTrigger className="w-full bg-muted/50 h-8 text-xs">
-                  <UserCog className="w-3.5 h-3.5 mr-1.5" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="player">Player</SelectItem>
-                  <SelectItem value="scout">Scout</SelectItem>
-                  <SelectItem value="club_admin">Club Admin</SelectItem>
-                  <SelectItem value="global_admin">Global Admin</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </aside>
         </div>
       )}
