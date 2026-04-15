@@ -12,6 +12,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -24,11 +25,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const restoreSession = async () => {
-      if (!getStoredRefreshToken()) {
+      const storedRefresh = getStoredRefreshToken();
+      if (!storedRefresh) {
         setIsLoading(false);
         return;
       }
       try {
+        // Access token is in-memory only and lost on page reload.
+        // Proactively exchange the refresh token first, then fetch the user.
+        const { data: tokens } = await authApi.refresh(storedRefresh);
+        setAccessToken(tokens.access_token);
+        setStoredRefreshToken(tokens.refresh_token);
         const { data: me } = await authApi.me();
         setUser(me);
         setRole(me.role as UserRole);
@@ -65,9 +72,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await authApi.register(payload);
   };
 
+  const refreshUser = async () => {
+    const { data: me } = await authApi.me();
+    setUser(me);
+    setRole(me.role as UserRole);
+  };
+
   return (
     <AuthContext.Provider
-      value={{ user, isAuthenticated: !!user, isLoading, login, logout, register }}
+      value={{ user, isAuthenticated: !!user, isLoading, login, logout, register, refreshUser }}
     >
       {children}
     </AuthContext.Provider>

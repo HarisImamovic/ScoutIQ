@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { toast } from "sonner";
 import {
   useReactTable,
   getCoreRowModel,
@@ -18,8 +19,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  FileText, Eye, Trash2, ArrowUpDown, ArrowUp, ArrowDown,
-  ChevronLeft, ChevronRight, Search, CheckCircle, Clock, XCircle, Star
+  FileText, Eye, Edit2, Trash2, ArrowUpDown, ArrowUp, ArrowDown,
+  ChevronLeft, ChevronRight, Search, CheckCircle, Clock, XCircle, Star,
 } from "lucide-react";
 import client from "@/api/client";
 
@@ -36,16 +37,16 @@ interface Report {
   created_at: string;
 }
 
-const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const POSITIONS = ["GK", "CB", "LB", "RB", "CDM", "CM", "AM", "CAM", "LW", "RW", "CF", "ST"];
 
 const formatDate = (dt: string) =>
   new Date(dt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
 const statusConfig: Record<ReportStatus, { label: string; className: string; icon: React.ElementType }> = {
-  draft:     { label: "Draft",     className: "bg-muted text-muted-foreground",           icon: Clock },
-  submitted: { label: "Submitted", className: "bg-blue-500/20 text-blue-400",             icon: FileText },
-  approved:  { label: "Approved",  className: "bg-emerald-500/20 text-emerald-400",       icon: CheckCircle },
-  rejected:  { label: "Rejected",  className: "bg-destructive/20 text-destructive",       icon: XCircle },
+  draft:     { label: "Draft",     className: "bg-muted text-muted-foreground",      icon: Clock },
+  submitted: { label: "Submitted", className: "bg-blue-500/20 text-blue-400",        icon: FileText },
+  approved:  { label: "Approved",  className: "bg-emerald-500/20 text-emerald-400",  icon: CheckCircle },
+  rejected:  { label: "Rejected",  className: "bg-destructive/20 text-destructive",  icon: XCircle },
 };
 
 function StatusBadge({ status }: { status: ReportStatus }) {
@@ -60,6 +61,13 @@ function SortIcon({ column }: { column: any }) {
   return <ArrowUpDown className="w-3.5 h-3.5 ml-1 inline opacity-40" />;
 }
 
+function CharCount({ value, max }: { value: string; max: number }) {
+  const len = value.length;
+  const pct = len / max;
+  const color = pct >= 1 ? "text-destructive" : pct >= 0.8 ? "text-yellow-500" : "text-muted-foreground";
+  return <span className={`text-xs ${color}`}>{len}/{max}</span>;
+}
+
 const columnHelper = createColumnHelper<Report>();
 
 export default function AdminReportsPage() {
@@ -71,12 +79,21 @@ export default function AdminReportsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [positionFilter, setPositionFilter] = useState("all");
 
+  const [scouts, setScouts] = useState<{ id: string; name: string }[]>([]);
+  const [saving, setSaving] = useState(false);
+
   const [viewOpen, setViewOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Report | null>(null);
-  const [form, setForm] = useState<Partial<Report>>({});
+  const [form, setForm] = useState<Partial<Report> & { scout_id?: string }>({});
   const [isCreating, setIsCreating] = useState(false);
+
+  useEffect(() => {
+    client.get<{ id: string; name: string }[]>("/admin/scouts")
+      .then(({ data }) => setScouts(data))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     client.get<{ items: Report[]; total: number }>("/admin/reports")
@@ -94,6 +111,27 @@ export default function AdminReportsPage() {
     const matchPos = positionFilter === "all" || r.position === positionFilter;
     return matchSearch && matchStatus && matchPos;
   }), [reports, globalFilter, statusFilter, positionFilter]);
+
+  const openCreate = () => {
+    setForm({ player_name: "", position: "ST", scout_id: "none", rating: 75, status: "draft", notes: "" });
+    setIsCreating(true);
+    setEditOpen(true);
+  };
+
+  const openEdit = (report: Report) => {
+    setForm({ ...report });
+    setIsCreating(false);
+    setEditOpen(true);
+  };
+
+  const playerNameLen = form.player_name?.length ?? 0;
+  const notesLen = form.notes?.length ?? 0;
+  const hasErrors =
+    !form.player_name?.trim() || playerNameLen > 200 ||
+    !form.position?.trim() ||
+    (isCreating && (!form.scout_id || form.scout_id === "none")) ||
+    notesLen > 2000 ||
+    !form.rating || (form.rating as number) < 1 || (form.rating as number) > 100;
 
   const columns = useMemo(() => [
     columnHelper.accessor("player_name", {
@@ -135,6 +173,9 @@ export default function AdminReportsPage() {
           <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { setSelected(row.original); setViewOpen(true); }}>
             <Eye className="w-4 h-4" />
           </Button>
+          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(row.original)}>
+            <Edit2 className="w-4 h-4" />
+          </Button>
           <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(row.original.id)}>
             <Trash2 className="w-4 h-4" />
           </Button>
@@ -155,30 +196,52 @@ export default function AdminReportsPage() {
     initialState: { pagination: { pageSize: 10 } },
   });
 
-  const openCreate = () => {
-    setForm({ player_name: "", position: "", scout_name: "", rating: 75, status: "draft", notes: "", created_at: new Date().toISOString() });
-    setIsCreating(true);
-    setEditOpen(true);
-  };
-
-  const openEdit = (report: Report) => {
-    setForm({ ...report });
-    setIsCreating(false);
-    setEditOpen(true);
-  };
-
-  const saveReport = () => {
-    if (isCreating) {
-      setReports(prev => [{ ...form as Report, id: crypto.randomUUID() }, ...prev]);
-    } else {
-      setReports(prev => prev.map(r => r.id === form.id ? { ...r, ...form } as Report : r));
+  const saveReport = async () => {
+    setSaving(true);
+    try {
+      if (!isCreating) {
+        const { data } = await client.put<Report>(`/admin/reports/${form.id}`, {
+          player_name: form.player_name,
+          position: form.position,
+          rating: form.rating,
+          status: form.status,
+          notes: form.notes || null,
+        });
+        setReports(prev => prev.map(r => r.id === form.id ? data : r));
+        setEditOpen(false);
+        toast.success("Report updated successfully.");
+      } else {
+        const { data } = await client.post<Report>("/admin/reports", {
+          scout_id: form.scout_id === "none" ? null : form.scout_id,
+          player_name: form.player_name,
+          position: form.position,
+          rating: form.rating,
+          status: form.status,
+          notes: form.notes || null,
+        });
+        setReports(prev => [data, ...prev]);
+        setEditOpen(false);
+        toast.success("Report created successfully.");
+      }
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      if (err.response?.status === 404) toast.error(typeof detail === "string" ? detail : "Scout not found.");
+      else toast.error(typeof detail === "string" ? detail : isCreating ? "Failed to create report." : "Failed to update report.");
+    } finally {
+      setSaving(false);
     }
-    setEditOpen(false);
   };
 
-  const deleteReport = (id: string) => {
-    setReports(prev => prev.filter(r => r.id !== id));
+  const deleteReport = async (id: string) => {
     setDeleteId(null);
+    setReports(prev => prev.filter(r => r.id !== id));
+    try {
+      await client.delete(`/admin/reports/${id}`);
+      toast.success("Report deleted.");
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Failed to delete report.");
+    }
   };
 
   const counts = useMemo(() => ({
@@ -363,22 +426,65 @@ export default function AdminReportsPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Player Name</Label>
-                <Input value={form.player_name ?? ""} onChange={e => setForm(f => ({ ...f, player_name: e.target.value }))} placeholder="Player name" />
+                <div className="flex items-center justify-between">
+                  <Label>Player Name</Label>
+                  <CharCount value={form.player_name ?? ""} max={200} />
+                </div>
+                <Input
+                  value={form.player_name ?? ""}
+                  onChange={e => setForm(f => ({ ...f, player_name: e.target.value }))}
+                  placeholder="Player name"
+                  className={playerNameLen > 200 ? "border-destructive focus-visible:ring-destructive" : ""}
+                />
+                {playerNameLen > 200 && <p className="text-xs text-destructive">Exceeds 200 character limit</p>}
               </div>
               <div className="space-y-1.5">
-                <Label>Position</Label>
-                <Input value={form.position ?? ""} onChange={e => setForm(f => ({ ...f, position: e.target.value }))} placeholder="e.g. CM, ST, CB" />
+                <div className="flex items-center justify-between">
+                  <Label>Position</Label>
+                </div>
+                <Select value={form.position ?? "ST"} onValueChange={v => setForm(f => ({ ...f, position: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {POSITIONS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Scout Name</Label>
-                <Input value={form.scout_name ?? ""} onChange={e => setForm(f => ({ ...f, scout_name: e.target.value }))} placeholder="Scout name" />
+                <Label>{isCreating ? "Scout *" : "Scout"}</Label>
+                {isCreating ? (
+                  <Select value={form.scout_id ?? "none"} onValueChange={v => setForm(f => ({ ...f, scout_id: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Select scout" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Select scout…</SelectItem>
+                      {scouts.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={form.scout_name ?? ""} readOnly className="bg-muted/50 opacity-70" />
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label>Rating (1–100)</Label>
-                <Input type="number" min={1} max={100} value={form.rating ?? ""} onChange={e => setForm(f => ({ ...f, rating: Number(e.target.value) }))} />
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={form.rating ?? ""}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    if (raw === "") {
+                      setForm(f => ({ ...f, rating: undefined as any }));
+                    } else {
+                      const parsed = parseInt(raw, 10);
+                      if (!isNaN(parsed)) {
+                        e.target.value = String(parsed); // strip leading zeros in DOM
+                        setForm(f => ({ ...f, rating: parsed }));
+                      }
+                    }
+                  }}
+                />
               </div>
             </div>
             <div className="space-y-1.5">
@@ -394,13 +500,25 @@ export default function AdminReportsPage() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Notes</Label>
-              <Textarea rows={4} value={form.notes ?? ""} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Scout observations and analysis..." />
+              <div className="flex items-center justify-between">
+                <Label>Notes</Label>
+                <CharCount value={form.notes ?? ""} max={2000} />
+              </div>
+              <Textarea
+                rows={4}
+                value={form.notes ?? ""}
+                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Scout observations and analysis..."
+                className={notesLen > 2000 ? "border-destructive focus-visible:ring-destructive" : ""}
+              />
+              {notesLen > 2000 && <p className="text-xs text-destructive">Exceeds 2000 character limit</p>}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button onClick={saveReport}>{isCreating ? "Add Report" : "Save Changes"}</Button>
+            <Button onClick={saveReport} disabled={saving || hasErrors}>
+              {saving ? "Saving…" : isCreating ? "Add Report" : "Save Changes"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -414,7 +532,10 @@ export default function AdminReportsPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleteId !== null && deleteReport(deleteId)}>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteId !== null && deleteReport(deleteId)}
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

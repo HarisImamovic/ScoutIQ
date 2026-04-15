@@ -2,7 +2,7 @@ import { Outlet, Link, useLocation } from "react-router-dom";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   LayoutDashboard, Users, FileText, Bot, Bell, Settings,
-  Shield, Menu, X, Search, ChevronLeft, Bookmark, Video,
+  Shield, Menu, X, ChevronLeft, Bookmark, Video,
   DollarSign, Star, Building2, CheckSquare, LogOut
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -155,14 +155,6 @@ export default function DashboardLayout() {
             <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileOpen(!mobileOpen)}>
               <Menu className="w-5 h-5" />
             </Button>
-            <div className="relative hidden sm:block">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search players, reports..."
-                className="h-9 w-64 rounded-lg bg-muted/50 border border-border pl-10 pr-4 text-sm focus:outline-none focus:border-primary transition-colors"
-              />
-            </div>
           </div>
           <div className="flex items-center gap-2">
             <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
@@ -184,11 +176,13 @@ export default function DashboardLayout() {
             >
               <LogOut className="w-4 h-4" />
             </Button>
-            <Avatar className="w-8 h-8 cursor-pointer">
-              <AvatarFallback className="bg-primary/20 text-primary text-sm font-semibold">
-                {userInitials}
-              </AvatarFallback>
-            </Avatar>
+            <Link to="/dashboard/settings" title="Settings">
+              <Avatar className="w-8 h-8 cursor-pointer">
+                <AvatarFallback className="bg-primary/20 text-primary text-sm font-semibold">
+                  {userInitials}
+                </AvatarFallback>
+              </Avatar>
+            </Link>
           </div>
         </header>
 

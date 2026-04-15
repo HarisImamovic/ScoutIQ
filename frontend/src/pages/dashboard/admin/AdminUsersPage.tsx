@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { toast } from "sonner";
 import {
   useReactTable, getCoreRowModel, getSortedRowModel,
   getFilteredRowModel, getPaginationRowModel,
@@ -53,10 +54,23 @@ function SortIcon({ d }: { d: "asc" | "desc" | false }) {
     : <ArrowDown className="w-3.5 h-3.5 ml-1 text-primary" />;
 }
 
-const emptyForm = { first_name: "", last_name: "", email: "", role: "scout", club_name: "", status: "active" };
+function CharCount({ value, max }: { value: string; max: number }) {
+  const n = value.length;
+  if (n === 0) return null;
+  const over = n > max;
+  const warn = !over && n > max * 0.8;
+  return (
+    <span className={`text-xs tabular-nums ${over ? "text-destructive font-medium" : warn ? "text-yellow-500" : "text-muted-foreground"}`}>
+      {n}/{max}
+    </span>
+  );
+}
+
+const emptyForm = { first_name: "", last_name: "", email: "", password: "", role: "scout", club_id: "none", status: "active" };
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [clubs, setClubs] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -67,12 +81,15 @@ export default function AdminUsersPage() {
   const [editTarget, setEditTarget] = useState<User | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     client.get<{ items: User[]; total: number }>("/admin/users")
       .then(({ data }) => setUsers(data.items))
       .catch(() => setError("Failed to load users."))
       .finally(() => setLoading(false));
+    client.get<{ items: { id: string; name: string; country: string }[]; total: number }>("/admin/clubs")
+      .then(({ data }) => setClubs(data.items.map(c => ({ id: c.id, name: c.name }))));
   }, []);
 
   const filtered = useMemo(() => users.filter((u) => {
@@ -162,19 +179,69 @@ export default function AdminUsersPage() {
   const openCreate = () => { setEditTarget(null); setForm(emptyForm); setModalOpen(true); };
   const openEdit = (u: User) => {
     setEditTarget(u);
-    setForm({ first_name: u.first_name, last_name: u.last_name, email: u.email, role: u.role, club_name: u.club_name ?? "", status: u.status });
+    const matchedClub = clubs.find(c => c.name === u.club_name);
+    setForm({ first_name: u.first_name, last_name: u.last_name, email: u.email, password: "", role: u.role, club_id: matchedClub?.id ?? "none", status: u.status });
     setModalOpen(true);
   };
-  const handleSave = () => {
+
+  const hasErrors =
+    !form.first_name.trim() || form.first_name.length > 100 ||
+    !form.last_name.trim() || form.last_name.length > 100 ||
+    !form.email.trim() || form.email.length > 254 ||
+    (!editTarget && !form.password.trim());
+
+  const handleSave = async () => {
     if (editTarget) {
-      setUsers((p) => p.map((u) => u.id === editTarget.id ? { ...u, ...form } : u));
-    } else {
-      setUsers((p) => [...p, { id: crypto.randomUUID(), ...form, created_at: new Date().toISOString() }]);
+      try {
+        setSaving(true);
+        const { data } = await client.put<User>(`/admin/users/${editTarget.id}`, {
+          first_name: form.first_name,
+          last_name: form.last_name,
+          email: form.email,
+          role: form.role,
+          club_id: form.club_id === "none" ? null : form.club_id || null,
+          status: form.status,
+        });
+        setUsers(prev => prev.map(u => u.id === editTarget.id ? data : u));
+        setModalOpen(false);
+        toast.success("User updated successfully.");
+      } catch (err: any) {
+        const detail = err.response?.data?.detail;
+        if (err.response?.status === 409) toast.error("A user with this email already exists.");
+        else toast.error(typeof detail === "string" ? detail : "Failed to update user.");
+      } finally {
+        setSaving(false);
+      }
+      return;
     }
-    setModalOpen(false);
+    try {
+      setSaving(true);
+      const { data } = await client.post<User>("/admin/users", { ...form, club_id: form.club_id === "none" ? null : form.club_id || null });
+      setUsers((p) => [data, ...p]);
+      setModalOpen(false);
+      toast.success("User created successfully.");
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      if (err.response?.status === 409) toast.error("A user with this email already exists.");
+      else if (err.response?.status === 422) toast.error(typeof detail === "string" ? detail : "Please check your inputs.");
+      else toast.error("Failed to create user.");
+    } finally {
+      setSaving(false);
+    }
   };
-  const handleDelete = () => {
-    if (deleteId !== null) { setUsers((p) => p.filter((u) => u.id !== deleteId)); setDeleteId(null); }
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    const id = deleteId;
+    setDeleteId(null);
+    setUsers(prev => prev.filter(u => u.id !== id));
+    try {
+      await client.delete(`/admin/users/${id}`);
+      toast.success("User deleted.");
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Failed to delete user.");
+    }
   };
 
   if (loading) return (
@@ -290,12 +357,68 @@ export default function AdminUsersPage() {
           <DialogHeader><DialogTitle className="font-display">{editTarget ? "Edit User" : "Add User"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>First Name *</Label><Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} className="bg-muted/50" /></div>
-              <div className="space-y-2"><Label>Last Name *</Label><Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} className="bg-muted/50" /></div>
+              {/* First Name */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label>First Name *</Label>
+                  <CharCount value={form.first_name} max={100} />
+                </div>
+                <Input
+                  value={form.first_name}
+                  onChange={(e) => setForm({ ...form, first_name: e.target.value })}
+                  className={`bg-muted/50 ${form.first_name.length > 100 ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                />
+                {form.first_name.length > 100 && (
+                  <p className="text-xs text-destructive">Must not exceed 100 characters</p>
+                )}
+              </div>
+              {/* Last Name */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label>Last Name *</Label>
+                  <CharCount value={form.last_name} max={100} />
+                </div>
+                <Input
+                  value={form.last_name}
+                  onChange={(e) => setForm({ ...form, last_name: e.target.value })}
+                  className={`bg-muted/50 ${form.last_name.length > 100 ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                />
+                {form.last_name.length > 100 && (
+                  <p className="text-xs text-destructive">Must not exceed 100 characters</p>
+                )}
+              </div>
             </div>
-            <div className="space-y-2"><Label>Email *</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="bg-muted/50" /></div>
+            {/* Email */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label>Email *</Label>
+                <CharCount value={form.email} max={254} />
+              </div>
+              <Input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                className={`bg-muted/50 ${form.email.length > 254 ? "border-destructive focus-visible:ring-destructive" : ""}`}
+              />
+              {form.email.length > 254 && (
+                <p className="text-xs text-destructive">Must not exceed 254 characters</p>
+              )}
+            </div>
+            {/* Password (create only) */}
+            {!editTarget && (
+              <div className="space-y-1.5">
+                <Label>Password *</Label>
+                <Input
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  className="bg-muted/50"
+                  placeholder="Min 8 chars, upper, lower, digit, special"
+                />
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>Role</Label>
+              <div className="space-y-1.5"><Label>Role</Label>
                 <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
                   <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -306,7 +429,7 @@ export default function AdminUsersPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2"><Label>Status</Label>
+              <div className="space-y-1.5"><Label>Status</Label>
                 <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
                   <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -318,11 +441,19 @@ export default function AdminUsersPage() {
                 </Select>
               </div>
             </div>
-            <div className="space-y-2"><Label>Club</Label><Input placeholder="e.g. Bayern Munich" value={form.club_name} onChange={(e) => setForm({ ...form, club_name: e.target.value })} className="bg-muted/50" /></div>
+            <div className="space-y-1.5"><Label>Club</Label>
+              <Select value={form.club_id} onValueChange={(v) => setForm({ ...form, club_id: v })}>
+                <SelectTrigger className="bg-muted/50"><SelectValue placeholder="No club" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No club</SelectItem>
+                  {clubs.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button variant="hero" onClick={handleSave} disabled={!form.first_name.trim() || !form.email.trim()}>{editTarget ? "Save Changes" : "Add User"}</Button>
+            <Button variant="hero" onClick={handleSave} disabled={saving || hasErrors}>{saving ? "Saving…" : editTarget ? "Save Changes" : "Add User"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

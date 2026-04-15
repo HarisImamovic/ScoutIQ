@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { toast } from "sonner";
 import {
   useReactTable, getCoreRowModel, getSortedRowModel,
   getFilteredRowModel, getPaginationRowModel,
@@ -31,9 +32,6 @@ interface Player {
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-const formatDate = (dt: string) =>
-  new Date(dt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-
 const calcAge = (dob: string | null): number | null => {
   if (!dob) return null;
   const birth = new Date(dob);
@@ -60,11 +58,19 @@ function SortIcon({ d }: { d: "asc" | "desc" | false }) {
   return d === "asc" ? <ArrowUp className="w-3.5 h-3.5 ml-1 text-primary" /> : <ArrowDown className="w-3.5 h-3.5 ml-1 text-primary" />;
 }
 
-const positions = ["GK","CB","LB","RB","CDM","CM","AM","CAM","LW","RW","CF","ST"];
-const emptyForm = { first_name: "", last_name: "", position: "ST", nationality: "", club_name: "", status: "active" };
+function CharCount({ value, max }: { value: string; max: number }) {
+  const len = value.length;
+  const pct = len / max;
+  const color = pct >= 1 ? "text-destructive" : pct >= 0.8 ? "text-yellow-500" : "text-muted-foreground";
+  return <span className={`text-xs ${color}`}>{len}/{max}</span>;
+}
+
+const positions = ["GK", "CB", "LB", "RB", "CDM", "CM", "AM", "CAM", "LW", "RW", "CF", "ST"];
+const emptyForm = { first_name: "", last_name: "", position: "ST", nationality: "", club_id: "none", status: "active" };
 
 export default function AdminPlayersPage() {
   const [players, setPlayers] = useState<Player[]>([]);
+  const [clubs, setClubs] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -75,13 +81,21 @@ export default function AdminPlayersPage() {
   const [editTarget, setEditTarget] = useState<Player | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     client.get<{ items: Player[]; total: number }>("/admin/players")
       .then(({ data }) => setPlayers(data.items))
       .catch(() => setError("Failed to load players."))
       .finally(() => setLoading(false));
+    client.get<{ items: { id: string; name: string; country: string }[]; total: number }>("/admin/clubs")
+      .then(({ data }) => setClubs(data.items.map(c => ({ id: c.id, name: c.name }))));
   }, []);
+
+  const hasErrors =
+    !form.first_name.trim() || form.first_name.length > 100 ||
+    !form.last_name.trim() || form.last_name.length > 100 ||
+    form.nationality.length > 100;
 
   const filtered = useMemo(() => players.filter((p) => {
     const q = globalFilter.toLowerCase();
@@ -91,6 +105,21 @@ export default function AdminPlayersPage() {
     const matchStatus = statusFilter === "all" || p.status === statusFilter;
     return matchSearch && matchPos && matchStatus;
   }), [players, globalFilter, posFilter, statusFilter]);
+
+  const openCreate = () => { setEditTarget(null); setForm(emptyForm); setModalOpen(true); };
+  const openEdit = (p: Player) => {
+    setEditTarget(p);
+    const matchedClub = clubs.find(c => c.name === p.club_name);
+    setForm({
+      first_name: p.first_name,
+      last_name: p.last_name,
+      position: p.position,
+      nationality: p.nationality ?? "",
+      club_id: matchedClub?.id ?? "none",
+      status: p.status,
+    });
+    setModalOpen(true);
+  };
 
   const columns: ColumnDef<Player>[] = useMemo(() => [
     {
@@ -159,7 +188,7 @@ export default function AdminPlayersPage() {
         </div>
       ),
     },
-  ], []);
+  ], [clubs]);
 
   const table = useReactTable({
     data: filtered, columns,
@@ -172,22 +201,52 @@ export default function AdminPlayersPage() {
     initialState: { pagination: { pageSize: 10 } },
   });
 
-  const openCreate = () => { setEditTarget(null); setForm(emptyForm); setModalOpen(true); };
-  const openEdit = (p: Player) => {
-    setEditTarget(p);
-    setForm({ first_name: p.first_name, last_name: p.last_name, position: p.position, nationality: p.nationality ?? "", club_name: p.club_name ?? "", status: p.status });
-    setModalOpen(true);
-  };
-  const handleSave = () => {
-    if (editTarget) {
-      setPlayers((prev) => prev.map((p) => p.id === editTarget.id ? { ...p, ...form } : p));
-    } else {
-      setPlayers((prev) => [...prev, { id: crypto.randomUUID(), ...form, date_of_birth: null, market_value: null, created_at: new Date().toISOString() }]);
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (editTarget) {
+        const { data } = await client.put<Player>(`/admin/players/${editTarget.id}`, {
+          first_name: form.first_name,
+          last_name: form.last_name,
+          position: form.position,
+          nationality: form.nationality || null,
+          club_id: form.club_id === "none" ? null : form.club_id || null,
+          status: form.status,
+          date_of_birth: editTarget.date_of_birth || null,
+          market_value: editTarget.market_value,
+        });
+        setPlayers(prev => prev.map(p => p.id === editTarget.id ? data : p));
+        setModalOpen(false);
+        toast.success("Player updated successfully.");
+      } else {
+        const { data } = await client.post<Player>("/admin/players", {
+          ...form,
+          club_id: form.club_id === "none" ? null : form.club_id || null,
+        });
+        setPlayers(prev => [data, ...prev]);
+        setModalOpen(false);
+        toast.success("Player created successfully.");
+      }
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : editTarget ? "Failed to update player." : "Failed to create player.");
+    } finally {
+      setSaving(false);
     }
-    setModalOpen(false);
   };
-  const handleDelete = () => {
-    if (deleteId !== null) { setPlayers((p) => p.filter((pl) => pl.id !== deleteId)); setDeleteId(null); }
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    const id = deleteId;
+    setDeleteId(null);
+    setPlayers(prev => prev.filter(pl => pl.id !== id));
+    try {
+      await client.delete(`/admin/players/${id}`);
+      toast.success("Player deleted.");
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Failed to delete player.");
+    }
   };
 
   if (loading) return (
@@ -298,17 +357,41 @@ export default function AdminPlayersPage() {
           <DialogHeader><DialogTitle className="font-display">{editTarget ? "Edit Player" : "Add Player"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>First Name *</Label><Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} className="bg-muted/50" /></div>
-              <div className="space-y-2"><Label>Last Name *</Label><Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} className="bg-muted/50" /></div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>First Name *</Label>
+                  <CharCount value={form.first_name} max={100} />
+                </div>
+                <Input
+                  value={form.first_name}
+                  onChange={(e) => setForm({ ...form, first_name: e.target.value })}
+                  className={`bg-muted/50 ${form.first_name.length > 100 ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                />
+                {form.first_name.length > 100 && <p className="text-xs text-destructive">Exceeds 100 character limit</p>}
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Last Name *</Label>
+                  <CharCount value={form.last_name} max={100} />
+                </div>
+                <Input
+                  value={form.last_name}
+                  onChange={(e) => setForm({ ...form, last_name: e.target.value })}
+                  className={`bg-muted/50 ${form.last_name.length > 100 ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                />
+                {form.last_name.length > 100 && <p className="text-xs text-destructive">Exceeds 100 character limit</p>}
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>Position</Label>
+              <div className="space-y-2">
+                <Label>Position</Label>
                 <Select value={form.position} onValueChange={(v) => setForm({ ...form, position: v })}>
                   <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
                   <SelectContent>{positions.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2"><Label>Status</Label>
+              <div className="space-y-2">
+                <Label>Status</Label>
                 <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
                   <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -319,20 +402,45 @@ export default function AdminPlayersPage() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>Club</Label><Input value={form.club_name} onChange={(e) => setForm({ ...form, club_name: e.target.value })} className="bg-muted/50" /></div>
-              <div className="space-y-2"><Label>Nationality</Label><Input value={form.nationality} onChange={(e) => setForm({ ...form, nationality: e.target.value })} className="bg-muted/50" /></div>
+              <div className="space-y-2">
+                <Label>Club</Label>
+                <Select value={form.club_id} onValueChange={(v) => setForm({ ...form, club_id: v })}>
+                  <SelectTrigger className="bg-muted/50"><SelectValue placeholder="No club" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No club</SelectItem>
+                    {clubs.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Nationality</Label>
+                  <CharCount value={form.nationality} max={100} />
+                </div>
+                <Input
+                  value={form.nationality}
+                  onChange={(e) => setForm({ ...form, nationality: e.target.value })}
+                  className={`bg-muted/50 ${form.nationality.length > 100 ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                />
+                {form.nationality.length > 100 && <p className="text-xs text-destructive">Exceeds 100 character limit</p>}
+              </div>
             </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button variant="hero" onClick={handleSave} disabled={!form.first_name.trim()}>{editTarget ? "Save Changes" : "Add Player"}</Button>
+            <Button variant="hero" onClick={handleSave} disabled={saving || hasErrors}>
+              {saving ? "Saving…" : editTarget ? "Save Changes" : "Add Player"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <AlertDialog open={deleteId !== null} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Delete Player</AlertDialogTitle><AlertDialogDescription>This will permanently remove this player from the platform. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Player</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently remove this player from the platform. This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>

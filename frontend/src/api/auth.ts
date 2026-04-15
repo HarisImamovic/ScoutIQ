@@ -32,6 +32,12 @@ export interface AuthUser {
   created_at: string;
 }
 
+export interface UpdateProfilePayload {
+  first_name: string;
+  last_name: string;
+  email: string;
+}
+
 export const authApi = {
   register: (payload: RegisterPayload) =>
     client.post<AuthUser>("/auth/register", payload),
@@ -42,5 +48,17 @@ export const authApi = {
   logout: (refreshToken: string) =>
     client.post("/auth/logout", { refresh_token: refreshToken }),
 
+  refresh: (refreshToken: string) =>
+    client.post<TokenPair>("/auth/refresh", { refresh_token: refreshToken }),
+
   me: () => client.get<AuthUser>("/auth/me"),
+
+  updateProfile: (payload: UpdateProfilePayload) =>
+    client.put<AuthUser>("/auth/me", payload),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    client.post<void>("/auth/change-password", {
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
 };

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { toast } from "sonner";
 import {
   useReactTable, getCoreRowModel, getSortedRowModel,
   getFilteredRowModel, getPaginationRowModel,
@@ -43,10 +44,23 @@ function SortIcon({ d }: { d: "asc" | "desc" | false }) {
   return d === "asc" ? <ArrowUp className="w-3.5 h-3.5 ml-1 text-primary" /> : <ArrowDown className="w-3.5 h-3.5 ml-1 text-primary" />;
 }
 
-const emptyForm = { name: "", country: "", league: "Bundesliga", status: "active" };
+function CharCount({ value, max }: { value: string; max: number }) {
+  const n = value.length;
+  if (n === 0) return null;
+  const over = n > max;
+  const warn = !over && n > max * 0.8;
+  return (
+    <span className={`text-xs tabular-nums ${over ? "text-destructive font-medium" : warn ? "text-yellow-500" : "text-muted-foreground"}`}>
+      {n}/{max}
+    </span>
+  );
+}
+
+const emptyForm = { name: "", country: "", league_id: "none", status: "active" };
 
 export default function AdminClubsPage() {
   const [clubs, setClubs] = useState<Club[]>([]);
+  const [leagues, setLeagues] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -57,15 +71,18 @@ export default function AdminClubsPage() {
   const [editTarget, setEditTarget] = useState<Club | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     client.get<{ items: Club[]; total: number }>("/admin/clubs")
       .then(({ data }) => setClubs(data.items))
       .catch(() => setError("Failed to load clubs."))
       .finally(() => setLoading(false));
+    client.get<{ id: string; name: string }[]>("/admin/leagues")
+      .then(({ data }) => setLeagues(data));
   }, []);
 
-  const leagues = useMemo(() => Array.from(new Set(clubs.map((c) => c.league).filter(Boolean))).sort(), [clubs]);
+  const leagueNames = useMemo(() => Array.from(new Set(clubs.map((c) => c.league).filter(Boolean))).sort(), [clubs]);
 
   const filtered = useMemo(() => clubs.filter((c) => {
     const q = globalFilter.toLowerCase();
@@ -154,19 +171,62 @@ export default function AdminClubsPage() {
   const openCreate = () => { setEditTarget(null); setForm(emptyForm); setModalOpen(true); };
   const openEdit = (c: Club) => {
     setEditTarget(c);
-    setForm({ name: c.name, country: c.country, league: c.league, status: c.status });
+    const matchedLeague = leagues.find(l => l.name === c.league);
+    setForm({ name: c.name, country: c.country, league_id: matchedLeague?.id ?? "none", status: c.status });
     setModalOpen(true);
   };
-  const handleSave = () => {
+
+  const hasErrors =
+    !form.name.trim() || form.name.length > 200 ||
+    !form.country.trim() || form.country.length > 100;
+
+  const handleSave = async () => {
     if (editTarget) {
-      setClubs((p) => p.map((c) => c.id === editTarget.id ? { ...c, ...form } : c));
-    } else {
-      setClubs((p) => [...p, { id: crypto.randomUUID(), ...form, scout_count: 0, player_count: 0, created_at: new Date().toISOString() }]);
+      try {
+        setSaving(true);
+        const { data } = await client.put<Club>(`/admin/clubs/${editTarget.id}`, {
+          name: form.name,
+          country: form.country,
+          league_id: form.league_id === "none" ? null : form.league_id || null,
+          status: form.status,
+        });
+        setClubs(prev => prev.map(c => c.id === editTarget.id ? data : c));
+        setModalOpen(false);
+        toast.success("Club updated successfully.");
+      } catch (err: any) {
+        const detail = err.response?.data?.detail;
+        toast.error(typeof detail === "string" ? detail : "Failed to update club.");
+      } finally {
+        setSaving(false);
+      }
+      return;
     }
-    setModalOpen(false);
+    try {
+      setSaving(true);
+      const { data } = await client.post<Club>("/admin/clubs", { ...form, league_id: form.league_id === "none" ? null : form.league_id || null });
+      setClubs((p) => [data, ...p]);
+      setModalOpen(false);
+      toast.success("Club created successfully.");
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Failed to create club.");
+    } finally {
+      setSaving(false);
+    }
   };
-  const handleDelete = () => {
-    if (deleteId !== null) { setClubs((p) => p.filter((c) => c.id !== deleteId)); setDeleteId(null); }
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    const id = deleteId;
+    setDeleteId(null);
+    setClubs(prev => prev.filter(c => c.id !== id));
+    try {
+      await client.delete(`/admin/clubs/${id}`);
+      toast.success("Club deleted.");
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Failed to delete club.");
+    }
   };
 
   if (loading) return (
@@ -214,7 +274,7 @@ export default function AdminClubsPage() {
           <SelectTrigger className="w-full sm:w-48 bg-muted/50"><SelectValue placeholder="All Leagues" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Leagues</SelectItem>
-            {leagues.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+            {leagueNames.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -277,12 +337,42 @@ export default function AdminClubsPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle className="font-display">{editTarget ? "Edit Club" : "Add Club"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-2"><Label>Club Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="bg-muted/50" /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>Country</Label><Input value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} className="bg-muted/50" /></div>
-              <div className="space-y-2"><Label>League</Label><Input value={form.league} onChange={(e) => setForm({ ...form, league: e.target.value })} className="bg-muted/50" /></div>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label>Club Name *</Label>
+                <CharCount value={form.name} max={200} />
+              </div>
+              <Input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                className={`bg-muted/50 ${form.name.length > 200 ? "border-destructive focus-visible:ring-destructive" : ""}`}
+              />
+              {form.name.length > 200 && <p className="text-xs text-destructive">Must not exceed 200 characters</p>}
             </div>
-            <div className="space-y-2"><Label>Status</Label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label>Country</Label>
+                  <CharCount value={form.country} max={100} />
+                </div>
+                <Input
+                  value={form.country}
+                  onChange={(e) => setForm({ ...form, country: e.target.value })}
+                  className={`bg-muted/50 ${form.country.length > 100 ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                />
+                {form.country.length > 100 && <p className="text-xs text-destructive">Must not exceed 100 characters</p>}
+              </div>
+              <div className="space-y-1.5"><Label>League</Label>
+                <Select value={form.league_id} onValueChange={(v) => setForm({ ...form, league_id: v })}>
+                  <SelectTrigger className="bg-muted/50"><SelectValue placeholder="No league" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No league</SelectItem>
+                    {leagues.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5"><Label>Status</Label>
               <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
                 <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -295,7 +385,7 @@ export default function AdminClubsPage() {
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button variant="hero" onClick={handleSave} disabled={!form.name.trim()}>{editTarget ? "Save Changes" : "Add Club"}</Button>
+            <Button variant="hero" onClick={handleSave} disabled={saving || hasErrors}>{saving ? "Saving…" : editTarget ? "Save Changes" : "Add Club"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

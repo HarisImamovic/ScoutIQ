@@ -8,7 +8,14 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.limiter import limiter
 from app.models.user import RefreshToken, User
-from app.schemas.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenPairResponse
+from app.schemas.auth import (
+    ChangePasswordRequest,
+    LoginRequest,
+    RefreshRequest,
+    RegisterRequest,
+    TokenPairResponse,
+    UpdateProfileRequest,
+)
 from app.schemas.user import UserResponse
 from app.security import (
     create_access_token,
@@ -168,3 +175,49 @@ def logout(payload: RefreshRequest, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.put("/me", response_model=UserResponse)
+def update_profile(
+    payload: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if payload.email.lower() != current_user.email.lower():
+        conflict = (
+            db.query(User)
+            .filter(
+                User.email == payload.email,
+                User.id != current_user.id,
+                User.deleted_at.is_(None),
+            )
+            .first()
+        )
+        if conflict:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This email is already in use by another account.",
+            )
+    current_user.first_name = payload.first_name
+    current_user.last_name = payload.last_name
+    current_user.email = payload.email
+    current_user.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    payload: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect.",
+        )
+    current_user.password_hash = hash_password(payload.new_password)
+    current_user.updated_at = datetime.now(timezone.utc)
+    db.commit()
