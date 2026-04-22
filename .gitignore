@@ -13,6 +13,9 @@ build/
 .venv/
 venv/
 
+# Logs
+*.log
+
 # Environment secrets — never commit real .env files
 backend/.env
 frontend/.env

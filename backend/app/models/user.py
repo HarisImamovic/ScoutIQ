@@ -46,6 +46,16 @@ class User(Base):
         back_populates="scout",
         cascade="all, delete-orphan",
     )
+    saved_prospects = relationship(
+        "SavedProspect",
+        back_populates="scout",
+        cascade="all, delete-orphan",
+    )
+    player_views = relationship(
+        "PlayerView",
+        back_populates="scout",
+        cascade="all, delete-orphan",
+    )
 
 
 class RefreshToken(Base):

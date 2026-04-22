@@ -94,7 +94,7 @@ export default function LoginPage() {
                   id="email"
                   type="email"
                   placeholder="you@example.com"
-                  autoComplete="email"
+                  autoComplete="off"
                   className={`pl-10 h-12 bg-muted/50 border-border focus:border-primary transition-colors ${errors.email ? "border-destructive focus:border-destructive" : ""}`}
                   value={email}
                   onChange={(e) => { setEmail(e.target.value); setErrors((p) => ({ ...p, email: undefined })); }}

@@ -33,3 +33,5 @@ class Player(Base):
 
     club = relationship("Club", back_populates="players")
     scouting_reports = relationship("ScoutingReport", back_populates="player")
+    saved_by_scouts = relationship("SavedProspect", back_populates="player", cascade="all, delete-orphan")
+    views = relationship("PlayerView", back_populates="player", cascade="all, delete-orphan")

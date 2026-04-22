@@ -83,6 +83,7 @@ def list_users(
             first_name=user.first_name,
             last_name=user.last_name,
             role=user.role,
+            club_id=str(user.club_id) if user.club_id else None,
             club_name=club_name,
             status=user.status,
             created_at=user.created_at,
@@ -109,6 +110,12 @@ def create_user(
         if not club:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
 
+    if body.role == "player" and not body.position:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Position is required when creating a player account.",
+        )
+
     new_user = User(
         email=body.email.lower(),
         password_hash=hash_password(body.password),
@@ -121,6 +128,14 @@ def create_user(
 
     try:
         db.add(new_user)
+        if body.role == "player":
+            db.add(Player(
+                first_name=body.first_name.strip(),
+                last_name=body.last_name.strip(),
+                position=body.position.strip().upper(),
+                club_id=club_uuid,
+                status="active",
+            ))
         db.commit()
         db.refresh(new_user)
     except IntegrityError:
@@ -136,6 +151,7 @@ def create_user(
         first_name=new_user.first_name,
         last_name=new_user.last_name,
         role=new_user.role,
+        club_id=str(club_uuid) if club_uuid else None,
         club_name=club.name if club else None,
         status=new_user.status,
         created_at=new_user.created_at,
@@ -466,6 +482,7 @@ def update_user(
         first_name=user.first_name,
         last_name=user.last_name,
         role=user.role,
+        club_id=str(club_uuid) if club_uuid else None,
         club_name=club.name if club else None,
         status=user.status,
         created_at=user.created_at,
