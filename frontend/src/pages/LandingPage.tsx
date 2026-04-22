@@ -1,11 +1,13 @@
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { BouncingBall } from "@/components/BouncingBall";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Users, Search, FileText, Building2, BellRing, Bot,
   Shield, UserCheck, Briefcase, Crown,
-  Twitter, Github, Linkedin, ArrowRight
+  Twitter, Github, Linkedin, ArrowRight, LayoutDashboard
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -31,6 +33,9 @@ const fadeUp = {
 };
 
 export default function LandingPage() {
+  const { isAuthenticated, isLoading, user } = useAuth();
+  const handleDashboardClick = () => toast.success(`Welcome back, ${user?.first_name}!`);
+
   return (
     <div className="min-h-screen bg-background">
       <nav className="fixed top-0 z-50 w-full glass border-b border-border/50">
@@ -43,12 +48,20 @@ export default function LandingPage() {
           </Link>
           <div className="flex items-center gap-3">
             <ThemeToggle />
-            <Link to="/login">
-              <Button variant="ghost" size="sm">Login</Button>
-            </Link>
-            <Link to="/register">
-              <Button variant="hero" size="sm">Get Started</Button>
-            </Link>
+            {!isLoading && isAuthenticated ? (
+              <Link to="/dashboard" onClick={handleDashboardClick}>
+                <Button variant="hero" size="sm"><LayoutDashboard className="w-4 h-4 mr-2" />Go to Dashboard</Button>
+              </Link>
+            ) : (
+              <>
+                <Link to="/login">
+                  <Button variant="ghost" size="sm">Login</Button>
+                </Link>
+                <Link to="/register">
+                  <Button variant="hero" size="sm">Get Started</Button>
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </nav>
@@ -72,16 +85,26 @@ export default function LandingPage() {
               Discover, evaluate, and track football talent with data-driven insights and AI-powered scouting tools.
             </p>
             <div className="mt-8 flex flex-wrap gap-4 justify-center lg:justify-start">
-              <Link to="/register">
-                <Button variant="hero" size="lg" className="text-base px-8">
-                  Get Started <ArrowRight className="ml-2 w-4 h-4" />
-                </Button>
-              </Link>
-              <Link to="/login">
-                <Button variant="hero-outline" size="lg" className="text-base px-8">
-                  Login
-                </Button>
-              </Link>
+              {!isLoading && isAuthenticated ? (
+                <Link to="/dashboard" onClick={handleDashboardClick}>
+                  <Button variant="hero" size="lg" className="text-base px-8">
+                    Go to Dashboard <LayoutDashboard className="ml-2 w-4 h-4" />
+                  </Button>
+                </Link>
+              ) : (
+                <>
+                  <Link to="/register">
+                    <Button variant="hero" size="lg" className="text-base px-8">
+                      Get Started <ArrowRight className="ml-2 w-4 h-4" />
+                    </Button>
+                  </Link>
+                  <Link to="/login">
+                    <Button variant="hero-outline" size="lg" className="text-base px-8">
+                      Login
+                    </Button>
+                  </Link>
+                </>
+              )}
             </div>
           </motion.div>
           <motion.div

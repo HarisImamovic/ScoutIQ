@@ -26,7 +26,8 @@ class AdminUserItem(BaseModel):
     first_name: str
     last_name: str
     role: str
-    club_name: Optional[str]
+    club_id: Optional[str] = None
+    club_name: Optional[str] = None
     status: str
     created_at: datetime
 
@@ -79,6 +80,7 @@ class AdminReportItem(BaseModel):
 _VALID_ROLES = {"player", "scout", "club_admin", "global_admin"}
 _VALID_USER_STATUSES = {"active", "inactive", "suspended"}
 _VALID_CLUB_STATUSES = {"active", "pending", "suspended"}
+_VALID_PLAYER_STATUSES = {"active", "injured"}
 _VALID_REPORT_STATUSES = {"draft", "submitted", "approved", "rejected"}
 
 
@@ -90,6 +92,7 @@ class CreateUserRequest(BaseModel):
     role: str
     club_id: Optional[str] = None
     status: str = "active"
+    position: Optional[str] = Field(None, max_length=20)
 
     @field_validator("role")
     @classmethod
@@ -141,6 +144,13 @@ class CreatePlayerRequest(BaseModel):
     club_id: Optional[str] = None
     market_value: Optional[int] = Field(None, ge=0)
     status: str = "active"
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        if v not in _VALID_PLAYER_STATUSES:
+            raise ValueError(f"status must be one of {sorted(_VALID_PLAYER_STATUSES)}")
+        return v
 
 
 class CreateReportRequest(BaseModel):
@@ -210,6 +220,13 @@ class UpdatePlayerRequest(BaseModel):
     club_id: Optional[str] = None
     market_value: Optional[int] = Field(None, ge=0)
     status: str = "active"
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        if v not in _VALID_PLAYER_STATUSES:
+            raise ValueError(f"status must be one of {sorted(_VALID_PLAYER_STATUSES)}")
+        return v
 
 
 class UpdateReportRequest(BaseModel):

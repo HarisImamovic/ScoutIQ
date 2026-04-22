@@ -53,9 +53,12 @@ export default function RegisterPage() {
   const validateStep1 = () => {
     const next: Record<string, string> = {};
     if (!firstName.trim()) next.firstName = "First name is required.";
+    else if (firstName.trim().length > 100) next.firstName = "First name cannot exceed 100 characters.";
     if (!lastName.trim()) next.lastName = "Last name is required.";
+    else if (lastName.trim().length > 100) next.lastName = "Last name cannot exceed 100 characters.";
     if (!email.trim()) next.email = "Email is required.";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) next.email = "Enter a valid email address.";
+    else if (email.length > 254) next.email = "Email address is too long.";
     if (!password) next.password = "Password is required.";
     else if (!PASSWORD_RE.test(password)) next.password = "Password does not meet requirements.";
     if (!confirmPassword) next.confirmPassword = "Please confirm your password.";
@@ -149,6 +152,7 @@ export default function RegisterPage() {
                       id="firstName"
                       placeholder="John"
                       autoComplete="given-name"
+                      maxLength={100}
                       className={cn("pl-10 h-12 bg-muted/50", errors.firstName && "border-destructive")}
                       value={firstName}
                       onChange={(e) => { setFirstName(e.target.value); setErrors((p) => ({ ...p, firstName: undefined! })); }}
@@ -164,6 +168,7 @@ export default function RegisterPage() {
                       id="lastName"
                       placeholder="Doe"
                       autoComplete="family-name"
+                      maxLength={100}
                       className={cn("pl-10 h-12 bg-muted/50", errors.lastName && "border-destructive")}
                       value={lastName}
                       onChange={(e) => { setLastName(e.target.value); setErrors((p) => ({ ...p, lastName: undefined! })); }}
@@ -181,7 +186,8 @@ export default function RegisterPage() {
                     id="reg-email"
                     type="email"
                     placeholder="you@example.com"
-                    autoComplete="email"
+                    autoComplete="off"
+                    maxLength={254}
                     className={cn("pl-10 h-12 bg-muted/50", errors.email && "border-destructive")}
                     value={email}
                     onChange={(e) => { setEmail(e.target.value); setErrors((p) => ({ ...p, email: undefined! })); }}

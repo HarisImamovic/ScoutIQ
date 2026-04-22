@@ -14,7 +14,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Users } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Spinner } from "@/components/ui/spinner";
+import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Users, Eye, EyeOff, Check, AlertCircle } from "lucide-react";
 import client from "@/api/client";
 
 interface User {
@@ -23,6 +25,7 @@ interface User {
   first_name: string;
   last_name: string;
   role: string;
+  club_id: string | null;
   club_name: string | null;
   status: string;
   created_at: string;
@@ -43,7 +46,6 @@ const formatDate = (dt: string) =>
 const statusColors: Record<string, string> = {
   Active:    "bg-primary/10 text-primary border-primary/20",
   Inactive:  "bg-muted text-muted-foreground border-muted-foreground/20",
-  Pending:   "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
   Suspended: "bg-destructive/10 text-destructive border-destructive/20",
 };
 
@@ -66,7 +68,21 @@ function CharCount({ value, max }: { value: string; max: number }) {
   );
 }
 
-const emptyForm = { first_name: "", last_name: "", email: "", password: "", role: "scout", club_id: "none", status: "active" };
+const POSITIONS = ["GK", "CB", "LB", "RB", "CDM", "CM", "AM", "CAM", "LW", "RW", "CF", "ST"];
+
+const emptyForm = { first_name: "", last_name: "", email: "", password: "", role: "scout", club_id: "none", status: "active", position: "" };
+
+const PASSWORD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d\s])[\x20-\x7E]{8,72}$/;
+
+function getPasswordHints(pw: string) {
+  return [
+    { label: "At least 8 characters",  met: pw.length >= 8 },
+    { label: "One uppercase letter",   met: /[A-Z]/.test(pw) },
+    { label: "One lowercase letter",   met: /[a-z]/.test(pw) },
+    { label: "One number",             met: /\d/.test(pw) },
+    { label: "One special character",  met: /[^A-Za-z\d\s]/.test(pw) },
+  ];
+}
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -82,6 +98,9 @@ export default function AdminUsersPage() {
   const [form, setForm] = useState(emptyForm);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
 
   useEffect(() => {
     client.get<{ items: User[]; total: number }>("/admin/users")
@@ -176,21 +195,36 @@ export default function AdminUsersPage() {
     initialState: { pagination: { pageSize: 10 } },
   });
 
-  const openCreate = () => { setEditTarget(null); setForm(emptyForm); setModalOpen(true); };
+  const openCreate = () => {
+    setEditTarget(null); setForm(emptyForm); setErrors({}); setShowPassword(false); setModalOpen(true);
+  };
   const openEdit = (u: User) => {
     setEditTarget(u);
-    const matchedClub = clubs.find(c => c.name === u.club_name);
-    setForm({ first_name: u.first_name, last_name: u.last_name, email: u.email, password: "", role: u.role, club_id: matchedClub?.id ?? "none", status: u.status });
+    setForm({ first_name: u.first_name, last_name: u.last_name, email: u.email, password: "", role: u.role, club_id: u.club_id ?? "none", status: u.status, position: "" });
+    setErrors({}); setShowPassword(false);
     setModalOpen(true);
   };
 
-  const hasErrors =
-    !form.first_name.trim() || form.first_name.length > 100 ||
-    !form.last_name.trim() || form.last_name.length > 100 ||
-    !form.email.trim() || form.email.length > 254 ||
-    (!editTarget && !form.password.trim());
+  const validate = () => {
+    const next: Record<string, string> = {};
+    if (!form.first_name.trim()) next.first_name = "First name is required.";
+    else if (form.first_name.length > 100) next.first_name = "Must not exceed 100 characters.";
+    if (!form.last_name.trim()) next.last_name = "Last name is required.";
+    else if (form.last_name.length > 100) next.last_name = "Must not exceed 100 characters.";
+    if (!form.email.trim()) next.email = "Email is required.";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) next.email = "Enter a valid email address.";
+    else if (form.email.length > 254) next.email = "Must not exceed 254 characters.";
+    if (!editTarget) {
+      if (!form.password) next.password = "Password is required.";
+      else if (!PASSWORD_RE.test(form.password)) next.password = "Password does not meet requirements.";
+      if (form.role === "player" && !form.position) next.position = "Position is required for player accounts.";
+    }
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
 
   const handleSave = async () => {
+    if (!validate()) return;
     if (editTarget) {
       try {
         setSaving(true);
@@ -216,7 +250,11 @@ export default function AdminUsersPage() {
     }
     try {
       setSaving(true);
-      const { data } = await client.post<User>("/admin/users", { ...form, club_id: form.club_id === "none" ? null : form.club_id || null });
+      const { data } = await client.post<User>("/admin/users", {
+        ...form,
+        club_id: form.club_id === "none" ? null : form.club_id || null,
+        position: form.role === "player" ? form.position : undefined,
+      });
       setUsers((p) => [data, ...p]);
       setModalOpen(false);
       toast.success("User created successfully.");
@@ -245,10 +283,18 @@ export default function AdminUsersPage() {
   };
 
   if (loading) return (
-    <div className="flex items-center justify-center h-64 text-muted-foreground">Loading users…</div>
+    <div className="flex items-center justify-center h-64">
+      <Spinner size="lg" />
+    </div>
   );
   if (error) return (
-    <div className="flex items-center justify-center h-64 text-destructive">{error}</div>
+    <div className="flex items-center justify-center h-64">
+      <Alert variant="destructive" className="max-w-md">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>Error</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    </div>
   );
 
   return (
@@ -301,7 +347,6 @@ export default function AdminUsersPage() {
             <SelectItem value="all">All Statuses</SelectItem>
             <SelectItem value="active">Active</SelectItem>
             <SelectItem value="inactive">Inactive</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="suspended">Suspended</SelectItem>
           </SelectContent>
         </Select>
@@ -352,7 +397,7 @@ export default function AdminUsersPage() {
       </Card>
 
       {/* Create / Edit modal */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+      <Dialog open={modalOpen} onOpenChange={(open) => { if (!open) setErrors({}); setModalOpen(open); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle className="font-display">{editTarget ? "Edit User" : "Add User"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
@@ -365,12 +410,10 @@ export default function AdminUsersPage() {
                 </div>
                 <Input
                   value={form.first_name}
-                  onChange={(e) => setForm({ ...form, first_name: e.target.value })}
-                  className={`bg-muted/50 ${form.first_name.length > 100 ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                  onChange={(e) => { setForm({ ...form, first_name: e.target.value }); setErrors(p => ({ ...p, first_name: undefined })); }}
+                  className={`bg-muted/50 ${errors.first_name ? "border-destructive focus-visible:ring-destructive" : ""}`}
                 />
-                {form.first_name.length > 100 && (
-                  <p className="text-xs text-destructive">Must not exceed 100 characters</p>
-                )}
+                {errors.first_name && <p className="text-xs text-destructive">{errors.first_name}</p>}
               </div>
               {/* Last Name */}
               <div className="space-y-1.5">
@@ -380,12 +423,10 @@ export default function AdminUsersPage() {
                 </div>
                 <Input
                   value={form.last_name}
-                  onChange={(e) => setForm({ ...form, last_name: e.target.value })}
-                  className={`bg-muted/50 ${form.last_name.length > 100 ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                  onChange={(e) => { setForm({ ...form, last_name: e.target.value }); setErrors(p => ({ ...p, last_name: undefined })); }}
+                  className={`bg-muted/50 ${errors.last_name ? "border-destructive focus-visible:ring-destructive" : ""}`}
                 />
-                {form.last_name.length > 100 && (
-                  <p className="text-xs text-destructive">Must not exceed 100 characters</p>
-                )}
+                {errors.last_name && <p className="text-xs text-destructive">{errors.last_name}</p>}
               </div>
             </div>
             {/* Email */}
@@ -397,29 +438,49 @@ export default function AdminUsersPage() {
               <Input
                 type="email"
                 value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                className={`bg-muted/50 ${form.email.length > 254 ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                onChange={(e) => { setForm({ ...form, email: e.target.value }); setErrors(p => ({ ...p, email: undefined })); }}
+                className={`bg-muted/50 ${errors.email ? "border-destructive focus-visible:ring-destructive" : ""}`}
               />
-              {form.email.length > 254 && (
-                <p className="text-xs text-destructive">Must not exceed 254 characters</p>
-              )}
+              {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
             </div>
             {/* Password (create only) */}
             {!editTarget && (
               <div className="space-y-1.5">
                 <Label>Password *</Label>
-                <Input
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  className="bg-muted/50"
-                  placeholder="Min 8 chars, upper, lower, digit, special"
-                />
+                <div className="relative">
+                  <Input
+                    type={showPassword ? "text" : "password"}
+                    value={form.password}
+                    onChange={(e) => { setForm({ ...form, password: e.target.value }); setErrors(p => ({ ...p, password: undefined })); }}
+                    onFocus={() => setPasswordFocused(true)}
+                    onBlur={() => setPasswordFocused(false)}
+                    className={`bg-muted/50 pr-10 ${errors.password ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                    placeholder="Min 8 chars, upper, lower, digit, special"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {errors.password && <p className="text-xs text-destructive">{errors.password}</p>}
+                {passwordFocused && form.password && (
+                  <ul className="mt-1 space-y-1">
+                    {getPasswordHints(form.password).map(({ label, met }) => (
+                      <li key={label} className={`flex items-center gap-1.5 text-xs ${met ? "text-primary" : "text-muted-foreground"}`}>
+                        <Check className={`w-3 h-3 ${met ? "opacity-100" : "opacity-30"}`} />
+                        {label}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5"><Label>Role</Label>
-                <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
+                <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v, status: "active", position: "" })}>
                   <SelectTrigger className="bg-muted/50"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="player">Player</SelectItem>
@@ -435,12 +496,25 @@ export default function AdminUsersPage() {
                   <SelectContent>
                     <SelectItem value="active">Active</SelectItem>
                     <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="suspended">Suspended</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
+            {form.role === "player" && !editTarget && (
+              <div className="space-y-1.5">
+                <Label>Position *</Label>
+                <Select value={form.position} onValueChange={(v) => { setForm({ ...form, position: v }); setErrors(p => ({ ...p, position: undefined })); }}>
+                  <SelectTrigger className={`bg-muted/50 ${errors.position ? "border-destructive focus-visible:ring-destructive" : ""}`}>
+                    <SelectValue placeholder="Select position" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {POSITIONS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {errors.position && <p className="text-xs text-destructive">{errors.position}</p>}
+              </div>
+            )}
             <div className="space-y-1.5"><Label>Club</Label>
               <Select value={form.club_id} onValueChange={(v) => setForm({ ...form, club_id: v })}>
                 <SelectTrigger className="bg-muted/50"><SelectValue placeholder="No club" /></SelectTrigger>
@@ -453,7 +527,7 @@ export default function AdminUsersPage() {
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button variant="hero" onClick={handleSave} disabled={saving || hasErrors}>{saving ? "Saving…" : editTarget ? "Save Changes" : "Add User"}</Button>
+            <Button variant="hero" onClick={handleSave} disabled={saving}>{saving ? "Saving…" : editTarget ? "Save Changes" : "Add User"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
