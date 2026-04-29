@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
     allowed_origins: str = "http://localhost:8080"
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = "http://localhost:8080/auth/google/callback"
 
     @property
     def origins_list(self) -> list[str]:

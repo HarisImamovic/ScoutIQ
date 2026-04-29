@@ -345,6 +345,7 @@ def list_reports(
     items = [
         AdminReportItem(
             id=str(report.id),
+            player_id=str(report.player_id) if report.player_id else None,
             player_name=report.player_name,
             position=report.position,
             scout_name=f"{first_name} {last_name}",
@@ -414,6 +415,7 @@ def create_report(
 
     return AdminReportItem(
         id=str(new_report.id),
+        player_id=str(new_report.player_id) if new_report.player_id else None,
         player_name=new_report.player_name,
         position=new_report.position,
         scout_name=f"{scout.first_name} {scout.last_name}",
@@ -686,6 +688,15 @@ def update_report(
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
 
+    if body.player_id:
+        try:
+            player_uuid = _uuid.UUID(body.player_id)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid player_id format.")
+        if not db.query(Player).filter(Player.id == player_uuid).first():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
+        report.player_id = player_uuid
+
     report.player_name = body.player_name.strip()
     report.position = body.position.strip()
     report.rating = body.rating
@@ -699,6 +710,7 @@ def update_report(
     scout = db.query(User).filter(User.id == report.scout_id).first()
     return AdminReportItem(
         id=str(report.id),
+        player_id=str(report.player_id) if report.player_id else None,
         player_name=report.player_name,
         position=report.position,
         scout_name=f"{scout.first_name} {scout.last_name}" if scout else "Unknown",

@@ -25,7 +25,7 @@ export default function ScoutDashboard() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Spinner size="lg" />
+        <Spinner size="lg" label="Loading dashboard…" />
       </div>
     );
   }

@@ -8,8 +8,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Area, AreaChart, CartesianGrid, XAxis } from "recharts";
 import {
-  Building2, Users, FileText, Search, ChevronLeft, ChevronRight, Star, Shield,
+  Building2, Users, FileText, Search, ChevronLeft, ChevronRight, Star, Shield, AlertCircle,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Spinner } from "@/components/ui/spinner";
 import client from "@/api/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -107,6 +109,7 @@ export default function AdminDashboard() {
   const [players, setPlayers] = useState<ApiPlayer[]>([]);
   const [reports, setReports] = useState<ApiReport[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -121,7 +124,7 @@ export default function AdminDashboard() {
         setPlayers(p.data.items);
         setReports(r.data.items);
       })
-      .catch(() => {})
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -220,7 +223,18 @@ export default function AdminDashboard() {
   const pagedReports = filteredReports.slice(reportPage * PAGE_SIZE, (reportPage + 1) * PAGE_SIZE);
 
   if (loading) return (
-    <div className="flex items-center justify-center h-64 text-muted-foreground">Loading dashboard…</div>
+    <div className="flex items-center justify-center h-64">
+      <Spinner size="lg" label="Loading dashboard…" />
+    </div>
+  );
+  if (error) return (
+    <div className="flex items-center justify-center h-64">
+      <Alert variant="destructive" className="max-w-md">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>Error</AlertTitle>
+        <AlertDescription>Failed to load dashboard. Please refresh the page.</AlertDescription>
+      </Alert>
+    </div>
   );
 
   return (

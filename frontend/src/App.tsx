@@ -13,6 +13,7 @@ import type { ReactNode } from "react";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import GoogleCallbackPage from "./pages/GoogleCallbackPage";
 import NotFound from "./pages/NotFound";
 import DashboardLayout from "./components/DashboardLayout";
 
@@ -73,6 +74,7 @@ const App = () => (
                 <Route path="/" element={<LandingPage />} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/register" element={<RegisterPage />} />
+                <Route path="/auth/google/callback" element={<GoogleCallbackPage />} />
                 <Route
                   path="/dashboard"
                   element={

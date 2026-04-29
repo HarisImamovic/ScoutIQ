@@ -4,12 +4,14 @@ import { authApi, AuthUser, RegisterPayload } from "@/api/auth";
 import { setAccessToken, setStoredRefreshToken, getStoredRefreshToken, clearTokens } from "@/api/client";
 import { useRole } from "@/contexts/RoleContext";
 import type { UserRole } from "@/contexts/RoleContext";
+import { toast } from "sonner";
 
 interface AuthContextType {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: (code: string, codeVerifier: string) => Promise<void>;
   logout: () => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -58,6 +60,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     navigate("/dashboard", { replace: true });
   };
 
+  const loginWithGoogle = async (code: string, codeVerifier: string) => {
+    const { data: tokens } = await authApi.googleCallback(code, codeVerifier);
+    setAccessToken(tokens.access_token);
+    setStoredRefreshToken(tokens.refresh_token);
+    const { data: me } = await authApi.me();
+    setUser(me);
+    setRole(me.role as UserRole);
+    toast.success("Logged in successfully.");
+    navigate("/dashboard", { replace: true });
+  };
+
   const logout = async () => {
     const storedRefresh = getStoredRefreshToken();
     if (storedRefresh) {
@@ -65,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setUser(null);
     clearTokens();
+    toast.success("Logged out successfully.");
     navigate("/login", { replace: true });
   };
 
@@ -80,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, isAuthenticated: !!user, isLoading, login, logout, register, refreshUser }}
+      value={{ user, isAuthenticated: !!user, isLoading, login, loginWithGoogle, logout, register, refreshUser }}
     >
       {children}
     </AuthContext.Provider>

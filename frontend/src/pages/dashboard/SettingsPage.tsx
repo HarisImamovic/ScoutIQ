@@ -81,6 +81,11 @@ export default function SettingsPage() {
     !lastName.trim()  || lastName.length > 100  ||
     !email.trim();
 
+  const profileHasChanges =
+    firstName.trim() !== (user?.first_name ?? "") ||
+    lastName.trim()  !== (user?.last_name  ?? "") ||
+    email.trim()     !== (user?.email      ?? "");
+
   const handleProfileSave = async () => {
     if (profileHasErrors) return;
     setProfileSaving(true);
@@ -236,26 +241,28 @@ export default function SettingsPage() {
               variant="hero"
               size="sm"
               onClick={handleProfileSave}
-              disabled={profileSaving || profileHasErrors}
+              disabled={profileSaving || profileHasErrors || !profileHasChanges}
             >
               {profileSaving ? "Saving…" : "Save Changes"}
             </Button>
 
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground gap-1.5"
-              onClick={() => { setShowPwSection(v => !v); setCurrentPw(""); setNewPw(""); setConfirmPw(""); }}
-            >
-              <KeyRound className="w-4 h-4" />
-              {showPwSection ? "Cancel" : "Change Password"}
-            </Button>
+            {user?.has_password && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground gap-1.5"
+                onClick={() => { setShowPwSection(v => !v); setCurrentPw(""); setNewPw(""); setConfirmPw(""); }}
+              >
+                <KeyRound className="w-4 h-4" />
+                {showPwSection ? "Cancel" : "Change Password"}
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
 
       {/* ── Change password card ──────────────────────────────────────────── */}
-      {showPwSection && (
+      {showPwSection && user?.has_password && (
         <Card className="border-primary/30">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg font-display flex items-center gap-2">

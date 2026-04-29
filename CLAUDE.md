@@ -112,5 +112,5 @@ No comments within the code.
 
 ## UI Conventions
 
-- **Loading states**: Use `<Spinner>` from `@/components/ui/spinner` — wrap in `<div className="flex items-center justify-center h-64">`. Available sizes: `sm`, `md`, `lg`.
+- **Loading states**: Use `<Spinner>` from `@/components/ui/spinner` — wrap in `<div className="flex items-center justify-center h-64">`. Available sizes: `sm`, `md`, `lg`. For page-level spinners use `size="lg"` with a `label` prop (e.g. `label="Loading players…"`) — the label renders centered below the spinner. Inline spinners (e.g. inside buttons) omit the label.
 - **Error states**: Use `<Alert variant="destructive">` from `@/components/ui/alert` with `<AlertCircle>` icon, `<AlertTitle>Error</AlertTitle>`, and `<AlertDescription>` — wrap in `<div className="flex items-center justify-center h-64">` with `max-w-md` on the alert.

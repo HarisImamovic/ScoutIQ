@@ -257,7 +257,7 @@ export default function AdminUsersPage() {
       });
       setUsers((p) => [data, ...p]);
       setModalOpen(false);
-      toast.success("User created successfully.");
+      toast.success("User created.");
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       if (err.response?.status === 409) toast.error("A user with this email already exists.");
@@ -284,7 +284,7 @@ export default function AdminUsersPage() {
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
-      <Spinner size="lg" />
+      <Spinner size="lg" label="Loading users…" />
     </div>
   );
   if (error) return (

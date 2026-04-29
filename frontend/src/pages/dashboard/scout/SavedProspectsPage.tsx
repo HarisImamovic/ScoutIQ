@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   useReactTable,
   getCoreRowModel,
@@ -19,6 +20,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
 import {
   ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight,
   BookmarkX, Search, Filter, AlertCircle,
@@ -46,6 +50,7 @@ export default function SavedProspectsPage() {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [posFilter, setPosFilter] = useState("All");
+  const [unsaveConfirm, setUnsaveConfirm] = useState<ScoutSavedProspectItem | null>(null);
 
   const { data: prospects = [], isLoading, isError } = useQuery({
     queryKey: ["scout-saved-prospects"],
@@ -59,6 +64,10 @@ export default function SavedProspectsPage() {
       qc.invalidateQueries({ queryKey: ["scout-saved-prospects"] });
       qc.invalidateQueries({ queryKey: ["scout-players"] });
       qc.invalidateQueries({ queryKey: ["scout-dashboard"] });
+      toast.success("Player unsaved.");
+    },
+    onError: () => {
+      toast.error("Failed to remove prospect.");
     },
   });
 
@@ -155,15 +164,22 @@ export default function SavedProspectsPage() {
             className="h-7 w-7 text-destructive hover:text-destructive"
             title="Remove from saved"
             disabled={unsaveMutation.isPending}
-            onClick={() => unsaveMutation.mutate(row.original.player_id)}
+            onClick={() => setUnsaveConfirm(row.original)}
           >
             <BookmarkX className="w-4 h-4" />
           </Button>
         ),
       },
     ],
-    [unsaveMutation.isPending]
+    [unsaveMutation.isPending, setUnsaveConfirm]
   );
+
+  const confirmUnsave = () => {
+    if (!unsaveConfirm) return;
+    const id = unsaveConfirm.player_id;
+    setUnsaveConfirm(null);
+    unsaveMutation.mutate(id);
+  };
 
   const table = useReactTable({
     data: filtered,
@@ -210,7 +226,7 @@ export default function SavedProspectsPage() {
 
       {isLoading ? (
         <div className="flex items-center justify-center h-64">
-          <Spinner size="lg" />
+          <Spinner size="lg" label="Loading prospects…" />
         </div>
       ) : isError ? (
         <div className="flex items-center justify-center h-64">
@@ -290,6 +306,60 @@ export default function SavedProspectsPage() {
           </Card>
         </>
       )}
+      <Dialog open={!!unsaveConfirm} onOpenChange={() => setUnsaveConfirm(null)}>
+        {unsaveConfirm && (
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="font-display flex items-center gap-2">
+                <BookmarkX className="w-5 h-5 text-destructive" /> Remove Prospect
+              </DialogTitle>
+            </DialogHeader>
+            <div className="py-2 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Remove{" "}
+                <span className="font-semibold text-foreground">
+                  {unsaveConfirm.first_name} {unsaveConfirm.last_name}
+                </span>{" "}
+                from your saved prospects?
+              </p>
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                <div className="w-10 h-10 rounded-lg bg-destructive/10 flex items-center justify-center font-display font-bold text-destructive text-sm">
+                  {unsaveConfirm.position}
+                </div>
+                <div>
+                  <p className="text-sm font-medium">
+                    {unsaveConfirm.first_name} {unsaveConfirm.last_name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {unsaveConfirm.club_name ?? "Free agent"} ·{" "}
+                    {unsaveConfirm.age != null ? `Age ${unsaveConfirm.age}` : "—"}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setUnsaveConfirm(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={confirmUnsave}
+                disabled={unsaveMutation.isPending}
+              >
+                {unsaveMutation.isPending ? (
+                  <span className="flex items-center gap-2">
+                    <Spinner size="sm" /> Removing…
+                  </span>
+                ) : (
+                  <>
+                    <BookmarkX className="w-4 h-4 mr-2" /> Remove
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
   );
 }

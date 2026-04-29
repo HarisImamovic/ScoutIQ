@@ -14,20 +14,26 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   FileText, Eye, Edit2, Trash2, ArrowUpDown, ArrowUp, ArrowDown,
-  ChevronLeft, ChevronRight, Search, CheckCircle, Clock, XCircle, Star,
+  ChevronLeft, ChevronRight, Search, CheckCircle, Clock, XCircle, Star, AlertCircle,
+  ChevronsUpDown, Check,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Spinner } from "@/components/ui/spinner";
 import client from "@/api/client";
 
 type ReportStatus = "draft" | "submitted" | "approved" | "rejected";
 
 interface Report {
   id: string;
+  player_id?: string | null;
   player_name: string;
   position: string;
   scout_name: string;
@@ -35,6 +41,13 @@ interface Report {
   status: ReportStatus;
   notes: string | null;
   created_at: string;
+}
+
+interface PlayerOption {
+  id: string;
+  first_name: string;
+  last_name: string;
+  position: string;
 }
 
 const POSITIONS = ["GK", "CB", "LB", "RB", "CDM", "CM", "AM", "CAM", "LW", "RW", "CF", "ST"];
@@ -80,6 +93,8 @@ export default function AdminReportsPage() {
   const [positionFilter, setPositionFilter] = useState("all");
 
   const [scouts, setScouts] = useState<{ id: string; name: string }[]>([]);
+  const [players, setPlayers] = useState<PlayerOption[]>([]);
+  const [playerOpen, setPlayerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [viewOpen, setViewOpen] = useState(false);
@@ -92,6 +107,9 @@ export default function AdminReportsPage() {
   useEffect(() => {
     client.get<{ id: string; name: string }[]>("/admin/scouts")
       .then(({ data }) => setScouts(data))
+      .catch(() => {});
+    client.get<{ items: PlayerOption[]; total: number }>("/admin/players")
+      .then(({ data }) => setPlayers(data.items))
       .catch(() => {});
   }, []);
 
@@ -113,21 +131,20 @@ export default function AdminReportsPage() {
   }), [reports, globalFilter, statusFilter, positionFilter]);
 
   const openCreate = () => {
-    setForm({ player_name: "", position: "ST", scout_id: "none", rating: 75, status: "draft", notes: "" });
+    setForm({ player_id: "", player_name: "", position: "ST", scout_id: "none", rating: 75, status: "draft", notes: "" });
     setIsCreating(true);
     setEditOpen(true);
   };
 
   const openEdit = (report: Report) => {
-    setForm({ ...report });
+    setForm({ ...report, player_id: report.player_id ?? "" });
     setIsCreating(false);
     setEditOpen(true);
   };
 
-  const playerNameLen = form.player_name?.length ?? 0;
   const notesLen = form.notes?.length ?? 0;
   const hasErrors =
-    !form.player_name?.trim() || playerNameLen > 200 ||
+    !form.player_id?.trim() ||
     !form.position?.trim() ||
     (isCreating && (!form.scout_id || form.scout_id === "none")) ||
     notesLen > 2000 ||
@@ -201,6 +218,7 @@ export default function AdminReportsPage() {
     try {
       if (!isCreating) {
         const { data } = await client.put<Report>(`/admin/reports/${form.id}`, {
+          player_id: form.player_id || null,
           player_name: form.player_name,
           position: form.position,
           rating: form.rating,
@@ -213,6 +231,7 @@ export default function AdminReportsPage() {
       } else {
         const { data } = await client.post<Report>("/admin/reports", {
           scout_id: form.scout_id === "none" ? null : form.scout_id,
+          player_id: form.player_id || null,
           player_name: form.player_name,
           position: form.position,
           rating: form.rating,
@@ -221,7 +240,7 @@ export default function AdminReportsPage() {
         });
         setReports(prev => [data, ...prev]);
         setEditOpen(false);
-        toast.success("Report created successfully.");
+        toast.success("Report created.");
       }
     } catch (err: any) {
       const detail = err.response?.data?.detail;
@@ -252,10 +271,18 @@ export default function AdminReportsPage() {
   }), [reports]);
 
   if (loading) return (
-    <div className="flex items-center justify-center h-64 text-muted-foreground">Loading reports…</div>
+    <div className="flex items-center justify-center h-64">
+      <Spinner size="lg" label="Loading reports…" />
+    </div>
   );
   if (error) return (
-    <div className="flex items-center justify-center h-64 text-destructive">{error}</div>
+    <div className="flex items-center justify-center h-64">
+      <Alert variant="destructive" className="max-w-md">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>Error</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    </div>
   );
 
   return (
@@ -367,7 +394,7 @@ export default function AdminReportsPage() {
 
       {/* View modal */}
       <Dialog open={viewOpen} onOpenChange={setViewOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="w-5 h-5 text-primary" />
@@ -375,7 +402,7 @@ export default function AdminReportsPage() {
             </DialogTitle>
           </DialogHeader>
           {selected && (
-            <div className="space-y-4">
+            <div className="space-y-4 overflow-y-auto max-h-[70vh]">
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="font-semibold text-lg">{selected.player_name}</h3>
@@ -403,7 +430,7 @@ export default function AdminReportsPage() {
               {selected.notes && (
                 <div className="bg-muted/30 rounded-lg p-3">
                   <p className="text-xs text-muted-foreground mb-1">Scout Notes</p>
-                  <p className="text-sm">{selected.notes}</p>
+                  <p className="text-sm break-words">{selected.notes}</p>
                 </div>
               )}
             </div>
@@ -419,35 +446,85 @@ export default function AdminReportsPage() {
 
       {/* Edit / Create modal */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{isCreating ? "Add Report" : "Edit Report"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 overflow-y-auto max-h-[70vh]">
+            <div className="space-y-1.5">
+              <Label>Player *</Label>
+              <Popover open={playerOpen} onOpenChange={setPlayerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between font-normal"
+                  >
+                    {form.player_id ? form.player_name : "Select player…"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0" style={{ width: "var(--radix-popover-trigger-width)" }}>
+                  <Command>
+                    <CommandInput placeholder="Search players…" />
+                    <CommandList>
+                      <CommandEmpty>No players found.</CommandEmpty>
+                      <CommandGroup>
+                        {players.map((p) => (
+                          <CommandItem
+                            key={p.id}
+                            value={`${p.first_name} ${p.last_name} ${p.position}`}
+                            onSelect={() => {
+                              setForm(f => ({
+                                ...f,
+                                player_id: p.id,
+                                player_name: `${p.first_name} ${p.last_name}`,
+                                position: p.position,
+                              }));
+                              setPlayerOpen(false);
+                            }}
+                          >
+                            <Check className={`mr-2 h-4 w-4 ${form.player_id === p.id ? "opacity-100" : "opacity-0"}`} />
+                            <span>{p.first_name} {p.last_name}</span>
+                            <span className="ml-auto text-xs text-muted-foreground">{p.position}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label>Player Name</Label>
-                  <CharCount value={form.player_name ?? ""} max={200} />
-                </div>
-                <Input
-                  value={form.player_name ?? ""}
-                  onChange={e => setForm(f => ({ ...f, player_name: e.target.value }))}
-                  placeholder="Player name"
-                  className={playerNameLen > 200 ? "border-destructive focus-visible:ring-destructive" : ""}
-                />
-                {playerNameLen > 200 && <p className="text-xs text-destructive">Exceeds 200 character limit</p>}
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label>Position</Label>
-                </div>
+                <Label>Position</Label>
                 <Select value={form.position ?? "ST"} onValueChange={v => setForm(f => ({ ...f, position: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {POSITIONS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Rating (1–100)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={form.rating ?? ""}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    if (raw === "") {
+                      setForm(f => ({ ...f, rating: undefined as any }));
+                    } else {
+                      const parsed = parseInt(raw, 10);
+                      if (!isNaN(parsed)) {
+                        e.target.value = String(parsed);
+                        setForm(f => ({ ...f, rating: parsed }));
+                      }
+                    }
+                  }}
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -466,38 +543,17 @@ export default function AdminReportsPage() {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label>Rating (1–100)</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={form.rating ?? ""}
-                  onChange={e => {
-                    const raw = e.target.value;
-                    if (raw === "") {
-                      setForm(f => ({ ...f, rating: undefined as any }));
-                    } else {
-                      const parsed = parseInt(raw, 10);
-                      if (!isNaN(parsed)) {
-                        e.target.value = String(parsed); // strip leading zeros in DOM
-                        setForm(f => ({ ...f, rating: parsed }));
-                      }
-                    }
-                  }}
-                />
+                <Label>Status</Label>
+                <Select value={form.status ?? "draft"} onValueChange={v => setForm(f => ({ ...f, status: v as ReportStatus }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="submitted">Submitted</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Status</Label>
-              <Select value={form.status ?? "draft"} onValueChange={v => setForm(f => ({ ...f, status: v as ReportStatus }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="draft">Draft</SelectItem>
-                  <SelectItem value="submitted">Submitted</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -505,7 +561,7 @@ export default function AdminReportsPage() {
                 <CharCount value={form.notes ?? ""} max={2000} />
               </div>
               <Textarea
-                rows={4}
+                rows={6}
                 value={form.notes ?? ""}
                 onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
                 placeholder="Scout observations and analysis..."

@@ -17,6 +17,7 @@ from app.models.saved_prospect import SavedProspect
 from app.models.user import User
 from app.schemas.scout import (
     CreateScoutReportRequest,
+    PlayerDropdownItem,
     RecentPlayerItem,
     SavedProspectSummary,
     ScoutDashboardResponse,
@@ -139,6 +140,22 @@ def get_dashboard(
 # ---------------------------------------------------------------------------
 # Players
 # ---------------------------------------------------------------------------
+
+@router.get("/players/dropdown", response_model=list[PlayerDropdownItem])
+def players_dropdown(
+    _: User = Depends(_require_scout),
+    db: Session = Depends(get_db),
+):
+    players = (
+        db.query(Player)
+        .order_by(Player.first_name, Player.last_name)
+        .all()
+    )
+    return [
+        PlayerDropdownItem(id=str(p.id), first_name=p.first_name, last_name=p.last_name, position=p.position)
+        for p in players
+    ]
+
 
 @router.get("/players", response_model=ScoutPlayersResponse)
 def list_players(
@@ -401,6 +418,15 @@ def update_report(
     )
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
+
+    if body.player_id:
+        try:
+            player_uuid = _uuid.UUID(body.player_id)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid player_id.")
+        if not db.query(Player).filter(Player.id == player_uuid).first():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
+        report.player_id = player_uuid
 
     report.player_name = body.player_name.strip()
     report.position = body.position.strip().upper()

@@ -14,7 +14,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Building2 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Spinner } from "@/components/ui/spinner";
+import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Building2, AlertCircle } from "lucide-react";
 import client from "@/api/client";
 
 interface Club {
@@ -206,7 +208,7 @@ export default function AdminClubsPage() {
       const { data } = await client.post<Club>("/admin/clubs", { ...form, league_id: form.league_id === "none" ? null : form.league_id || null });
       setClubs((p) => [data, ...p]);
       setModalOpen(false);
-      toast.success("Club created successfully.");
+      toast.success("Club created.");
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       toast.error(typeof detail === "string" ? detail : "Failed to create club.");
@@ -230,10 +232,18 @@ export default function AdminClubsPage() {
   };
 
   if (loading) return (
-    <div className="flex items-center justify-center h-64 text-muted-foreground">Loading clubs…</div>
+    <div className="flex items-center justify-center h-64">
+      <Spinner size="lg" label="Loading clubs…" />
+    </div>
   );
   if (error) return (
-    <div className="flex items-center justify-center h-64 text-destructive">{error}</div>
+    <div className="flex items-center justify-center h-64">
+      <Alert variant="destructive" className="max-w-md">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>Error</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    </div>
   );
 
   return (
