@@ -30,6 +30,7 @@ export interface AuthUser {
   status: string;
   last_login_at: string | null;
   created_at: string;
+  has_password: boolean;
 }
 
 export interface UpdateProfilePayload {
@@ -60,5 +61,11 @@ export const authApi = {
     client.post<void>("/auth/change-password", {
       current_password: currentPassword,
       new_password: newPassword,
+    }),
+
+  googleCallback: (code: string, codeVerifier: string) =>
+    client.post<TokenPair>("/auth/google/callback", {
+      code,
+      code_verifier: codeVerifier,
     }),
 };

@@ -64,6 +64,7 @@ class AdminReportItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    player_id: Optional[str] = None
     player_name: str
     position: str
     scout_name: str
@@ -230,6 +231,7 @@ class UpdatePlayerRequest(BaseModel):
 
 
 class UpdateReportRequest(BaseModel):
+    player_id: Optional[str] = None
     player_name: str = Field(min_length=1, max_length=200)
     position: str = Field(min_length=1, max_length=10)
     rating: int = Field(ge=1, le=100)

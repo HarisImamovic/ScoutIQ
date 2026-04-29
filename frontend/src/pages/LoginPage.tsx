@@ -9,6 +9,45 @@ import { BouncingBall } from "@/components/BouncingBall";
 import { Shield, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+
+function GoogleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-5 h-5 shrink-0" aria-hidden="true">
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+    </svg>
+  );
+}
+
+async function generateCodeVerifier(): Promise<string> {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return btoa(String.fromCharCode(...array))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
+}
+
+async function generateCodeChallenge(verifier: string): Promise<string> {
+  const data = new TextEncoder().encode(verifier);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
+}
+
+function generateState(): string {
+  const array = new Uint8Array(16);
+  crypto.getRandomValues(array);
+  return Array.from(array)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export default function LoginPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
@@ -17,6 +56,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
   useEffect(() => {
@@ -34,12 +74,46 @@ export default function LoginPage() {
     return Object.keys(next).length === 0;
   };
 
+  const handleGoogleSignIn = async () => {
+    if (!GOOGLE_CLIENT_ID) {
+      toast.error("Google sign-in is not configured.");
+      return;
+    }
+    setGoogleLoading(true);
+    try {
+      const verifier = await generateCodeVerifier();
+      const challenge = await generateCodeChallenge(verifier);
+      const state = generateState();
+
+      sessionStorage.setItem("google_code_verifier", verifier);
+      sessionStorage.setItem("google_oauth_state", state);
+
+      const params = new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID,
+        redirect_uri: `${window.location.origin}/auth/google/callback`,
+        response_type: "code",
+        scope: "openid email profile",
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+        state,
+        access_type: "online",
+        prompt: "select_account",
+      });
+
+      window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+    } catch {
+      toast.error("Failed to initiate Google sign-in. Please try again.");
+      setGoogleLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
     setSubmitting(true);
     try {
       await login(email, password);
+      toast.success("Logged in successfully.");
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
@@ -144,6 +218,34 @@ export default function LoginPage() {
                 "Sign In"
               )}
             </Button>
+
+            {GOOGLE_CLIENT_ID && (
+              <>
+                <div className="relative my-1">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-border" />
+                  </div>
+                  <div className="relative flex justify-center text-xs">
+                    <span className="bg-background px-2 text-muted-foreground">or</span>
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full h-12 gap-3 text-sm font-medium"
+                  onClick={handleGoogleSignIn}
+                  disabled={googleLoading}
+                >
+                  {googleLoading ? (
+                    <span className="w-4 h-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+                  ) : (
+                    <GoogleIcon />
+                  )}
+                  Continue with Google
+                </Button>
+              </>
+            )}
 
             <p className="text-center text-sm text-muted-foreground mt-6">
               Don't have an account?{" "}

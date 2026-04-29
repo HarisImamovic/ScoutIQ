@@ -113,7 +113,7 @@ export default function PlayersPage() {
   const saveMutation = useMutation({
     mutationFn: scoutApi.saveProspect,
     onMutate: (id) => patchCache(id, true),
-    onSuccess: () => toast.success("Player has been saved."),
+    onSuccess: () => toast.success("Player saved."),
     onError: (_, id) => {
       patchCache(id, false);
       toast.error("Failed to save prospect. Please try again.", {
@@ -130,7 +130,7 @@ export default function PlayersPage() {
   const unsaveMutation = useMutation({
     mutationFn: scoutApi.unsaveProspect,
     onMutate: (id) => patchCache(id, false),
-    onSuccess: () => toast.success("Player has been unsaved."),
+    onSuccess: () => toast.success("Player unsaved."),
     onError: (_, id) => {
       patchCache(id, true);
       toast.error("Failed to remove prospect. Please try again.", {
@@ -220,7 +220,7 @@ export default function PlayersPage() {
 
       {isLoading ? (
         <div className="flex items-center justify-center h-64">
-          <Spinner size="lg" />
+          <Spinner size="lg" label="Loading players…" />
         </div>
       ) : isError ? (
         <div className="flex items-center justify-center h-64">

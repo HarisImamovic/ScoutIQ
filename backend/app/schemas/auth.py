@@ -84,3 +84,8 @@ class TokenPairResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+
+class GoogleCallbackRequest(BaseModel):
+    code: str
+    code_verifier: str

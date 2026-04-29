@@ -153,14 +153,14 @@ export default function ClubReportsPage() {
       {/* View modal */}
       <Dialog open={!!viewReport} onOpenChange={() => setViewReport(null)}>
         {viewReport && (
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle className="font-display flex items-center gap-2">
                 <FileText className="w-5 h-5 text-primary" />
                 Scout Report — {viewReport.player}
               </DialogTitle>
             </DialogHeader>
-            <div className="space-y-4 py-2">
+            <div className="space-y-4 py-2 overflow-y-auto max-h-[70vh]">
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 rounded-lg bg-muted/50">
                   <p className="text-xs text-muted-foreground">Player</p>
@@ -189,7 +189,7 @@ export default function ClubReportsPage() {
               </div>
               <div>
                 <p className="text-xs font-medium text-muted-foreground mb-2">Scout Notes</p>
-                <div className="p-3 rounded-lg bg-muted/50 text-sm leading-relaxed">{viewReport.notes}</div>
+                <div className="p-3 rounded-lg bg-muted/50 text-sm leading-relaxed break-words">{viewReport.notes}</div>
               </div>
             </div>
             {viewReport.status === "Pending" && (

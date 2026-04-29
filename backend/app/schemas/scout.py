@@ -105,6 +105,7 @@ class CreateScoutReportRequest(BaseModel):
 
 
 class UpdateScoutReportRequest(BaseModel):
+    player_id: Optional[str] = None
     player_name: str = Field(min_length=1, max_length=200)
     position: str = Field(min_length=1, max_length=20)
     rating: int = Field(ge=1, le=100)
@@ -117,3 +118,10 @@ class UpdateScoutReportRequest(BaseModel):
         if v not in _SCOUT_REPORT_STATUSES:
             raise ValueError("status must be 'draft' or 'submitted'")
         return v
+
+
+class PlayerDropdownItem(BaseModel):
+    id: str
+    first_name: str
+    last_name: str
+    position: str

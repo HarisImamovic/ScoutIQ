@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -16,7 +19,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Eye, Edit2, Trash2, FileText, AlertCircle } from "lucide-react";
+import { Plus, Eye, Edit2, Trash2, FileText, AlertCircle, ChevronsUpDown, Check } from "lucide-react";
 import { scoutApi, ScoutReportItem } from "@/api/scout";
 
 const POSITIONS = ["GK", "CB", "LB", "RB", "CDM", "CM", "AM", "LW", "RW", "CF", "ST"];
@@ -30,7 +33,7 @@ const statusColors: Record<string, string> = {
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-const emptyForm = { player_name: "", position: "ST", rating: "80", status: "draft", notes: "" };
+const emptyForm = { player_id: "", player_name: "", position: "ST", rating: "80", status: "draft", notes: "" };
 
 type FormState = typeof emptyForm;
 type ModalMode = "create" | "edit" | "view" | null;
@@ -42,11 +45,18 @@ export default function ReportsPage() {
   const [activeReport, setActiveReport] = useState<ScoutReportItem | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [playerOpen, setPlayerOpen] = useState(false);
 
   const { data: reports = [], isLoading, isError } = useQuery({
     queryKey: ["scout-reports"],
     queryFn: scoutApi.getReports,
     staleTime: 30_000,
+  });
+
+  const { data: playerOptions = [] } = useQuery({
+    queryKey: ["scout-player-dropdown"],
+    queryFn: scoutApi.getPlayersForDropdown,
+    staleTime: 60_000,
   });
 
   const createMutation = useMutation({
@@ -55,12 +65,14 @@ export default function ReportsPage() {
       qc.invalidateQueries({ queryKey: ["scout-reports"] });
       qc.invalidateQueries({ queryKey: ["scout-dashboard"] });
       setModalMode(null);
+      toast.success("Report created.");
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: FormState }) =>
       scoutApi.updateReport(id, {
+        player_id: data.player_id || undefined,
         player_name: data.player_name,
         position: data.position,
         rating: Number(data.rating),
@@ -79,6 +91,10 @@ export default function ReportsPage() {
       qc.invalidateQueries({ queryKey: ["scout-reports"] });
       qc.invalidateQueries({ queryKey: ["scout-dashboard"] });
       setDeleteId(null);
+      toast.success("Report deleted.");
+    },
+    onError: () => {
+      toast.error("Failed to delete report.");
     },
   });
 
@@ -90,6 +106,7 @@ export default function ReportsPage() {
 
   const openEdit = (r: ScoutReportItem) => {
     setForm({
+      player_id: r.player_id ?? "",
       player_name: r.player_name,
       position: r.position,
       rating: String(r.rating),
@@ -108,6 +125,7 @@ export default function ReportsPage() {
   const handleSave = () => {
     if (!isFormValid) return;
     const payload = {
+      player_id: form.player_id || undefined,
       player_name: form.player_name.trim(),
       position: form.position,
       rating: Number(form.rating),
@@ -122,6 +140,7 @@ export default function ReportsPage() {
   };
 
   const isFormValid =
+    form.player_id.trim().length > 0 &&
     form.player_name.trim().length > 0 &&
     Number(form.rating) >= 1 &&
     Number(form.rating) <= 100;
@@ -142,7 +161,7 @@ export default function ReportsPage() {
 
       {isLoading ? (
         <div className="flex items-center justify-center h-64">
-          <Spinner size="lg" />
+          <Spinner size="lg" label="Loading reports…" />
         </div>
       ) : isError ? (
         <div className="flex items-center justify-center h-64">
@@ -225,14 +244,14 @@ export default function ReportsPage() {
 
       <Dialog open={modalMode === "view"} onOpenChange={() => setModalMode(null)}>
         {activeReport && (
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle className="font-display flex items-center gap-2">
                 <FileText className="w-5 h-5 text-primary" />
                 Scouting Report — {activeReport.player_name}
               </DialogTitle>
             </DialogHeader>
-            <div className="space-y-4 py-2">
+            <div className="space-y-4 py-2 overflow-y-auto max-h-[70vh]">
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 rounded-lg bg-muted/50">
                   <p className="text-xs text-muted-foreground">Player</p>
@@ -265,7 +284,7 @@ export default function ReportsPage() {
               </div>
               <div>
                 <p className="text-xs font-medium text-muted-foreground mb-2">Scout Notes</p>
-                <div className="p-3 rounded-lg bg-muted/50 text-sm leading-relaxed">
+                <div className="p-3 rounded-lg bg-muted/50 text-sm leading-relaxed break-words">
                   {activeReport.notes || <span className="text-muted-foreground italic">No notes added</span>}
                 </div>
               </div>
@@ -281,22 +300,56 @@ export default function ReportsPage() {
       </Dialog>
 
       <Dialog open={modalMode === "create" || modalMode === "edit"} onOpenChange={() => setModalMode(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="font-display">
               {modalMode === "edit" ? "Edit Report" : "New Scouting Report"}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-2 overflow-y-auto max-h-[70vh]">
             <div className="space-y-2">
-              <Label>Player Name *</Label>
-              <Input
-                placeholder="e.g. Lamine Yamal"
-                value={form.player_name}
-                onChange={(e) => setForm({ ...form, player_name: e.target.value })}
-                className="bg-muted/50"
-                maxLength={200}
-              />
+              <Label>Player *</Label>
+              <Popover open={playerOpen} onOpenChange={setPlayerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between bg-muted/50 font-normal"
+                  >
+                    {form.player_id ? form.player_name : "Select player…"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0" style={{ width: "var(--radix-popover-trigger-width)" }}>
+                  <Command>
+                    <CommandInput placeholder="Search players…" />
+                    <CommandList>
+                      <CommandEmpty>No players found.</CommandEmpty>
+                      <CommandGroup>
+                        {playerOptions.map((p) => (
+                          <CommandItem
+                            key={p.id}
+                            value={`${p.first_name} ${p.last_name} ${p.position}`}
+                            onSelect={() => {
+                              setForm(f => ({
+                                ...f,
+                                player_id: p.id,
+                                player_name: `${p.first_name} ${p.last_name}`,
+                                position: p.position,
+                              }));
+                              setPlayerOpen(false);
+                            }}
+                          >
+                            <Check className={`mr-2 h-4 w-4 ${form.player_id === p.id ? "opacity-100" : "opacity-0"}`} />
+                            <span>{p.first_name} {p.last_name}</span>
+                            <span className="ml-auto text-xs text-muted-foreground">{p.position}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
@@ -343,7 +396,7 @@ export default function ReportsPage() {
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 className="bg-muted/50 resize-none"
-                rows={4}
+                rows={6}
                 maxLength={2000}
               />
             </div>
