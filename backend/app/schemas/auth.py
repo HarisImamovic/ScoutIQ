@@ -89,3 +89,22 @@ class TokenPairResponse(BaseModel):
 class GoogleCallbackRequest(BaseModel):
     code: str
     code_verifier: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_meets_policy(cls, v: str) -> str:
+        if not validate_password_strength(v):
+            raise ValueError(
+                "Password must be 8–72 characters and contain at least one uppercase letter, "
+                "one lowercase letter, one digit, and one special character."
+            )
+        return v

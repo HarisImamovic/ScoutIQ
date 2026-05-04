@@ -40,3 +40,4 @@ class Club(Base):
 
     league = relationship("League", back_populates="clubs")
     players = relationship("Player", back_populates="club")
+    player_contracts = relationship("PlayerContract", back_populates="club", cascade="all, delete-orphan")

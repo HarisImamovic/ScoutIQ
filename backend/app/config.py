@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8080/auth/google/callback"
+    gmail_user: str = ""
+    gmail_app_password: str = ""
+    frontend_url: str = "http://localhost:8080"
 
     @property
     def origins_list(self) -> list[str]:
