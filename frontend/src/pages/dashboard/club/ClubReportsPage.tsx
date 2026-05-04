@@ -83,17 +83,45 @@ export default function ClubReportsPage() {
         </Card>
       </div>
 
-      {/* Reports table */}
-      <Card>
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-3">
+        {reports.map((r) => (
+          <div key={r.id} className="bg-card border border-border rounded-xl p-4 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="font-medium text-sm">{r.player}</p>
+                <p className="text-xs text-muted-foreground">{r.position} · {r.scout}</p>
+              </div>
+              <div className="flex gap-1 shrink-0">
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setViewReport(r)}><Eye className="w-3.5 h-3.5" /></Button>
+                {r.status === "Pending" && (
+                  <>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-primary hover:text-primary" onClick={() => setConfirmAction({ id: r.id, action: "Approved" })}><CheckCircle2 className="w-3.5 h-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setConfirmAction({ id: r.id, action: "Rejected" })}><XCircle className="w-3.5 h-3.5" /></Button>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-display font-bold text-primary text-sm">{r.rating}</span>
+              <Badge variant="outline" className={statusColors[r.status]}>{r.status}</Badge>
+              <span className="text-xs text-muted-foreground ml-auto">{r.date}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <Card className="hidden md:block">
         <CardContent className="pt-6">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th className="text-left py-3 px-2 text-muted-foreground font-medium">Player</th>
-                  <th className="text-left py-3 px-2 text-muted-foreground font-medium hidden sm:table-cell">Scout</th>
+                  <th className="text-left py-3 px-2 text-muted-foreground font-medium">Scout</th>
                   <th className="text-left py-3 px-2 text-muted-foreground font-medium">Rating</th>
-                  <th className="text-left py-3 px-2 text-muted-foreground font-medium hidden md:table-cell">Date</th>
+                  <th className="text-left py-3 px-2 text-muted-foreground font-medium">Date</th>
                   <th className="text-left py-3 px-2 text-muted-foreground font-medium">Status</th>
                   <th className="text-right py-3 px-2 text-muted-foreground font-medium">Actions</th>
                 </tr>
@@ -105,11 +133,11 @@ export default function ClubReportsPage() {
                       <div className="font-medium">{r.player}</div>
                       <div className="text-xs text-muted-foreground">{r.position}</div>
                     </td>
-                    <td className="py-3 px-2 text-muted-foreground hidden sm:table-cell">{r.scout}</td>
+                    <td className="py-3 px-2 text-muted-foreground">{r.scout}</td>
                     <td className="py-3 px-2">
                       <span className="font-display font-bold text-primary">{r.rating}</span>
                     </td>
-                    <td className="py-3 px-2 text-muted-foreground hidden md:table-cell">{r.date}</td>
+                    <td className="py-3 px-2 text-muted-foreground">{r.date}</td>
                     <td className="py-3 px-2">
                       <Badge variant="outline" className={statusColors[r.status]}>{r.status}</Badge>
                     </td>
@@ -120,22 +148,10 @@ export default function ClubReportsPage() {
                         </Button>
                         {r.status === "Pending" && (
                           <>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-primary hover:text-primary"
-                              title="Approve"
-                              onClick={() => setConfirmAction({ id: r.id, action: "Approved" })}
-                            >
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-primary hover:text-primary" title="Approve" onClick={() => setConfirmAction({ id: r.id, action: "Approved" })}>
                               <CheckCircle2 className="w-3.5 h-3.5" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-destructive hover:text-destructive"
-                              title="Reject"
-                              onClick={() => setConfirmAction({ id: r.id, action: "Rejected" })}
-                            >
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" title="Reject" onClick={() => setConfirmAction({ id: r.id, action: "Rejected" })}>
                               <XCircle className="w-3.5 h-3.5" />
                             </Button>
                           </>

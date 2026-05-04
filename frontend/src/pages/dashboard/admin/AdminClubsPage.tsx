@@ -300,7 +300,41 @@ export default function AdminClubsPage() {
 
       <div className="text-sm text-muted-foreground">{filtered.length} club{filtered.length !== 1 ? "s" : ""}</div>
 
-      <Card>
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-3">
+        {table.getRowModel().rows.length === 0 ? (
+          <p className="text-center py-12 text-muted-foreground">No clubs found</p>
+        ) : table.getRowModel().rows.map((row) => {
+          const c = row.original;
+          return (
+            <div key={c.id} className="bg-card border border-border rounded-xl p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-medium text-sm">{c.name}</p>
+                  <p className="text-xs text-muted-foreground">{c.country}{c.league ? ` · ${c.league}` : ""}</p>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}><Edit2 className="w-4 h-4" /></Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(c.id)}><Trash2 className="w-4 h-4" /></Button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="outline" className={`text-xs ${statusColors[capitalize(c.status)]}`}>{capitalize(c.status)}</Badge>
+                <span className="text-xs text-muted-foreground">{c.scout_count} scout{c.scout_count !== 1 ? "s" : ""} · {c.player_count} player{c.player_count !== 1 ? "s" : ""}</span>
+              </div>
+            </div>
+          );
+        })}
+        <div className="flex items-center justify-between pt-2">
+          <span className="text-sm text-muted-foreground">Page {table.getState().pagination.pageIndex + 1} of {Math.max(1, table.getPageCount())}</span>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}><ChevronLeft className="w-4 h-4" /></Button>
+            <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}><ChevronRight className="w-4 h-4" /></Button>
+          </div>
+        </div>
+      </div>
+
+      <Card className="hidden md:block">
         <CardContent className="pt-4">
           <div className="overflow-x-auto">
             <Table>

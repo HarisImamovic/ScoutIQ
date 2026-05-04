@@ -340,8 +340,44 @@ export default function AdminReportsPage() {
         </Select>
       </div>
 
-      {/* Table */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-3">
+        {table.getRowModel().rows.length === 0 ? (
+          <p className="text-center py-12 text-muted-foreground">No reports found</p>
+        ) : table.getRowModel().rows.map((row) => {
+          const r = row.original;
+          return (
+            <div key={r.id} className="bg-card border border-border rounded-xl p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-medium text-sm">{r.player_name}</p>
+                  <p className="text-xs text-muted-foreground">{r.position} · {r.scout_name}</p>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { setSelected(r); setViewOpen(true); }}><Eye className="w-4 h-4" /></Button>
+                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(r)}><Edit2 className="w-4 h-4" /></Button>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(r.id)}><Trash2 className="w-4 h-4" /></Button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1"><Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" /><span className="font-semibold text-primary text-sm">{r.rating}</span></div>
+                <StatusBadge status={r.status} />
+                <span className="text-xs text-muted-foreground ml-auto">{formatDate(r.created_at)}</span>
+              </div>
+            </div>
+          );
+        })}
+        <div className="flex items-center justify-between pt-2">
+          <span className="text-sm text-muted-foreground">Page {table.getState().pagination.pageIndex + 1} of {Math.max(1, table.getPageCount())} · {filtered.length} reports</span>
+          <div className="flex gap-1">
+            <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}><ChevronLeft className="w-4 h-4" /></Button>
+            <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}><ChevronRight className="w-4 h-4" /></Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-card border border-border rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-border bg-muted/30">

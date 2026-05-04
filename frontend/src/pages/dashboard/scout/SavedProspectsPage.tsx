@@ -242,7 +242,40 @@ export default function SavedProspectsPage() {
             {filtered.length} prospect{filtered.length !== 1 ? "s" : ""}
           </div>
 
-          <Card>
+          {/* Mobile cards */}
+          <div className="md:hidden space-y-3">
+            {table.getRowModel().rows.length === 0 ? (
+              <p className="text-center py-12 text-muted-foreground">No saved prospects yet. Save players from the Players page.</p>
+            ) : table.getRowModel().rows.map((row) => {
+              const p = row.original;
+              return (
+                <div key={p.player_id} className="bg-card border border-border rounded-xl p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-sm">{p.first_name} {p.last_name}</p>
+                      <p className="text-xs text-muted-foreground">{p.position}{p.nationality ? ` · ${p.nationality}` : ""}{p.age != null ? ` · Age ${p.age}` : ""}</p>
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive shrink-0" disabled={unsaveMutation.isPending} onClick={() => setUnsaveConfirm(p)}>
+                      <BookmarkX className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-muted-foreground">{p.club_name ?? "Free agent"}</span>
+                    <span className="text-xs font-semibold text-primary ml-auto">{formatMarketValue(p.market_value)}</span>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-sm text-muted-foreground">Page {table.getState().pagination.pageIndex + 1} of {Math.max(1, table.getPageCount())}</span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}><ChevronLeft className="w-4 h-4" /></Button>
+                <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}><ChevronRight className="w-4 h-4" /></Button>
+              </div>
+            </div>
+          </div>
+
+          <Card className="hidden md:block">
             <CardContent className="pt-4">
               <div className="overflow-x-auto">
                 <Table>
