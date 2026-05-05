@@ -8,7 +8,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
 from app.limiter import limiter
-from app.routers import auth, admin, club_admin, scout
+from app.routers import auth, admin, club_admin, scout, player
 from app.tasks import start_background_tasks
 
 settings = get_settings()
@@ -62,3 +62,4 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(club_admin.router, prefix="/api/v1")
 app.include_router(scout.router, prefix="/api/v1")
+app.include_router(player.router, prefix="/api/v1")

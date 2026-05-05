@@ -3,8 +3,9 @@ import { toast } from "sonner";
 import {
   useReactTable, getCoreRowModel, getSortedRowModel,
   getFilteredRowModel, getPaginationRowModel,
-  flexRender, ColumnDef, SortingState,
+  flexRender, ColumnDef, SortingState, RowSelectionState,
 } from "@tanstack/react-table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Users, Eye, EyeOff, Check, AlertCircle } from "lucide-react";
+import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Users, Eye, EyeOff, Check, AlertCircle, CheckCircle } from "lucide-react";
 import client from "@/api/client";
 
 interface User {
@@ -36,6 +37,13 @@ const roleLabel: Record<string, string> = {
   scout: "Scout",
   club_admin: "Club Admin",
   global_admin: "Global Admin",
+};
+
+const roleColors: Record<string, string> = {
+  player:       "bg-blue-500/10 text-blue-600 border-blue-500/20 dark:text-blue-400",
+  scout:        "bg-purple-500/10 text-purple-600 border-purple-500/20 dark:text-purple-400",
+  club_admin:   "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400",
+  global_admin: "bg-primary/10 text-primary border-primary/20",
 };
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -99,6 +107,8 @@ export default function AdminUsersPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
 
@@ -122,6 +132,23 @@ export default function AdminUsersPage() {
 
   const columns: ColumnDef<User>[] = useMemo(() => [
     {
+      id: "select",
+      header: ({ table }) => (
+        <Checkbox
+          checked={table.getIsAllRowsSelected() || (table.getIsSomeRowsSelected() && "indeterminate")}
+          onCheckedChange={(v) => table.toggleAllRowsSelected(!!v)}
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(v) => row.toggleSelected(!!v)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ),
+      enableSorting: false,
+    },
+    {
       id: "name",
       accessorFn: (u) => `${u.first_name} ${u.last_name}`,
       header: ({ column }) => (
@@ -139,11 +166,14 @@ export default function AdminUsersPage() {
     {
       accessorKey: "role",
       header: "Role",
-      cell: ({ getValue }) => (
-        <Badge variant="secondary" className="text-xs bg-muted">
-          {roleLabel[getValue() as string] ?? getValue() as string}
-        </Badge>
-      ),
+      cell: ({ getValue }) => {
+        const role = getValue() as string;
+        return (
+          <Badge variant="outline" className={`text-xs ${roleColors[role] ?? ""}`}>
+            {roleLabel[role] ?? role}
+          </Badge>
+        );
+      },
     },
     {
       accessorKey: "club_name",
@@ -177,17 +207,36 @@ export default function AdminUsersPage() {
       cell: ({ row }) => (
         <div className="flex items-center justify-end gap-1">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(row.original)}><Edit2 className="w-3.5 h-3.5" /></Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(row.original.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(row.original.id)} disabled={Object.keys(rowSelection).length > 0}><Trash2 className="w-3.5 h-3.5" /></Button>
         </div>
       ),
     },
-  ], []);
+  ], [rowSelection]);
+
+  const selectedIds = Object.keys(rowSelection);
+
+  const handleBulkDelete = async () => {
+    setBulkDeleteOpen(false);
+    const ids = table.getSelectedRowModel().rows.map((r) => r.original.id);
+    setUsers((prev) => prev.filter((u) => !ids.includes(u.id)));
+    setRowSelection({});
+    try {
+      await client.post("/admin/users/bulk-delete", { ids });
+      toast.success(`${ids.length} user${ids.length !== 1 ? "s" : ""} deleted.`);
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Failed to delete selected users.");
+    }
+  };
 
   const table = useReactTable({
     data: filtered,
     columns,
-    state: { sorting },
+    state: { sorting, rowSelection },
     onSortingChange: setSorting,
+    onRowSelectionChange: setRowSelection,
+    enableRowSelection: true,
+    getRowId: (row) => row.id,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -310,18 +359,20 @@ export default function AdminUsersPage() {
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Total",   value: users.length },
-          { label: "Active",  value: users.filter((u) => u.status === "active").length },
-          { label: "Scouts",  value: users.filter((u) => u.role === "scout").length },
-          { label: "Players", value: users.filter((u) => u.role === "player").length },
-        ].map((s) => (
-          <Card key={s.label} className="hover-lift">
-            <CardContent className="pt-4 pb-3">
-              <Users className="w-4 h-4 text-primary mb-1" />
-              <div className="text-xl font-display font-bold">{s.value}</div>
-              <div className="text-xs text-muted-foreground">{s.label}</div>
-            </CardContent>
-          </Card>
+          { label: "Total",   value: users.length,                                      icon: Users,       color: "text-primary" },
+          { label: "Active",  value: users.filter((u) => u.status === "active").length, icon: CheckCircle, color: "text-emerald-400" },
+          { label: "Scouts",  value: users.filter((u) => u.role === "scout").length,    icon: Search,      color: "text-purple-400" },
+          { label: "Players", value: users.filter((u) => u.role === "player").length,   icon: Users,       color: "text-blue-400" },
+        ].map((card) => (
+          <div key={card.label} className="bg-card border border-border rounded-xl p-4 flex items-center gap-4">
+            <div className={`p-2 rounded-lg bg-muted ${card.color}`}>
+              <card.icon className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold">{card.value}</div>
+              <div className="text-xs text-muted-foreground">{card.label}</div>
+            </div>
+          </div>
         ))}
       </div>
 
@@ -352,6 +403,18 @@ export default function AdminUsersPage() {
         </Select>
       </div>
 
+      {selectedIds.length > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2">
+          <span className="text-sm font-medium">{selectedIds.length} row{selectedIds.length !== 1 ? "s" : ""} selected</span>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>Clear</Button>
+            <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
+              <Trash2 className="w-4 h-4 mr-2" /> Delete {selectedIds.length} selected
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="text-sm text-muted-foreground">{filtered.length} user{filtered.length !== 1 ? "s" : ""}</div>
 
       {/* Mobile cards */}
@@ -369,11 +432,11 @@ export default function AdminUsersPage() {
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(u)}><Edit2 className="w-4 h-4" /></Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(u.id)}><Trash2 className="w-4 h-4" /></Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(u.id)} disabled={selectedIds.length > 0}><Trash2 className="w-4 h-4" /></Button>
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <Badge variant="outline" className="text-xs">{roleLabel[u.role] ?? u.role}</Badge>
+                <Badge variant="outline" className={`text-xs ${roleColors[u.role] ?? ""}`}>{roleLabel[u.role] ?? u.role}</Badge>
                 <Badge variant="outline" className={`text-xs ${statusColors[capitalize(u.status)]}`}>{capitalize(u.status)}</Badge>
                 {u.club_name && <span className="text-xs text-muted-foreground">{u.club_name}</span>}
               </div>
@@ -573,6 +636,19 @@ export default function AdminUsersPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedIds.length} user{selectedIds.length !== 1 ? "s" : ""}?</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently delete {selectedIds.length} selected user account{selectedIds.length !== 1 ? "s" : ""}. This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

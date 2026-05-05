@@ -62,6 +62,12 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    player_profile = relationship(
+        "Player",
+        back_populates="user",
+        uselist=False,
+        foreign_keys="[Player.user_id]",
+    )
 
 
 class RefreshToken(Base):

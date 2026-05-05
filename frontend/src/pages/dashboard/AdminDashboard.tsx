@@ -25,7 +25,7 @@ interface ApiUser {
 }
 interface ApiPlayer {
   id: string; first_name: string; last_name: string; date_of_birth: string | null;
-  nationality: string | null; position: string; club_name: string | null;
+  nationality: string | null; position: string | null; club_name: string | null;
   market_value: number | null; status: string; created_at: string;
 }
 interface ApiReport {
@@ -72,6 +72,13 @@ const REPORT_BADGE: Record<string, string> = {
 
 const ROLE_LABELS: Record<string, string> = {
   player: "Player", scout: "Scout", club_admin: "Club Admin", global_admin: "Global Admin",
+};
+
+const ROLE_COLORS: Record<string, string> = {
+  player:       "bg-blue-500/10 text-blue-600 border-blue-500/20 dark:text-blue-400",
+  scout:        "bg-purple-500/10 text-purple-600 border-purple-500/20 dark:text-purple-400",
+  club_admin:   "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400",
+  global_admin: "bg-primary/10 text-primary border-primary/20",
 };
 
 // ─── Pager ────────────────────────────────────────────────────────────────────
@@ -406,7 +413,7 @@ export default function AdminDashboard() {
                         <td className="py-3 px-2 font-medium">{u.first_name} {u.last_name}</td>
                         <td className="py-3 px-2 text-muted-foreground">{u.email}</td>
                         <td className="py-3 px-2">
-                          <Badge variant="secondary" className="text-xs bg-muted">{ROLE_LABELS[u.role] ?? u.role}</Badge>
+                          <Badge variant="outline" className={`text-xs ${ROLE_COLORS[u.role] ?? ""}`}>{ROLE_LABELS[u.role] ?? u.role}</Badge>
                         </td>
                         <td className="py-3 px-2 text-muted-foreground">{u.club_name ?? "—"}</td>
                         <td className="py-3 px-2">
@@ -465,7 +472,7 @@ export default function AdminDashboard() {
                           <div className="font-medium">{p.first_name} {p.last_name}</div>
                           <div className="text-xs text-muted-foreground">{p.nationality ?? "—"}</div>
                         </td>
-                        <td className="py-3 px-2"><Badge variant="outline" className="text-xs">{p.position}</Badge></td>
+                        <td className="py-3 px-2"><Badge variant="outline" className="text-xs">{p.position ?? "—"}</Badge></td>
                         <td className="py-3 px-2 text-muted-foreground">{calcAge(p.date_of_birth)}</td>
                         <td className="py-3 px-2 text-muted-foreground">{p.club_name ?? "—"}</td>
                         <td className="py-3 px-2 font-display font-bold text-primary text-xs">{formatValue(p.market_value)}</td>

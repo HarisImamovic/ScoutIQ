@@ -3,8 +3,9 @@ import { toast } from "sonner";
 import {
   useReactTable, getCoreRowModel, getSortedRowModel,
   getFilteredRowModel, getPaginationRowModel,
-  flexRender, ColumnDef, SortingState,
+  flexRender, ColumnDef, SortingState, RowSelectionState,
 } from "@tanstack/react-table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,14 +17,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Building2, AlertCircle } from "lucide-react";
+import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Building2, AlertCircle, FileUp, CheckCircle, Clock, XCircle } from "lucide-react";
 import client from "@/api/client";
+import { BulkImportModal } from "@/components/BulkImportModal";
 
 interface Club {
   id: string;
   name: string;
   country: string;
   league: string;
+  league_id: string | null;
   scout_count: number;
   player_count: number;
   status: string;
@@ -74,6 +77,9 @@ export default function AdminClubsPage() {
   const [form, setForm] = useState(emptyForm);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   useEffect(() => {
     client.get<{ items: Club[]; total: number }>("/admin/clubs")
@@ -95,6 +101,23 @@ export default function AdminClubsPage() {
   }), [clubs, globalFilter, statusFilter, leagueFilter]);
 
   const columns: ColumnDef<Club>[] = useMemo(() => [
+    {
+      id: "select",
+      header: ({ table }) => (
+        <Checkbox
+          checked={table.getIsAllRowsSelected() || (table.getIsSomeRowsSelected() && "indeterminate")}
+          onCheckedChange={(v) => table.toggleAllRowsSelected(!!v)}
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(v) => row.toggleSelected(!!v)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ),
+      enableSorting: false,
+    },
     {
       accessorKey: "name",
       header: ({ column }) => (
@@ -153,16 +176,35 @@ export default function AdminClubsPage() {
       cell: ({ row }) => (
         <div className="flex items-center justify-end gap-1">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(row.original)}><Edit2 className="w-3.5 h-3.5" /></Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(row.original.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(row.original.id)} disabled={Object.keys(rowSelection).length > 0}><Trash2 className="w-3.5 h-3.5" /></Button>
         </div>
       ),
     },
-  ], []);
+  ], [rowSelection]);
+
+  const selectedIds = Object.keys(rowSelection);
+
+  const handleBulkDelete = async () => {
+    setBulkDeleteOpen(false);
+    const ids = table.getSelectedRowModel().rows.map((r) => r.original.id);
+    setClubs((prev) => prev.filter((c) => !ids.includes(c.id)));
+    setRowSelection({});
+    try {
+      await client.post("/admin/clubs/bulk-delete", { ids });
+      toast.success(`${ids.length} club${ids.length !== 1 ? "s" : ""} deleted.`);
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Failed to delete selected clubs.");
+    }
+  };
 
   const table = useReactTable({
     data: filtered, columns,
-    state: { sorting },
+    state: { sorting, rowSelection },
     onSortingChange: setSorting,
+    onRowSelectionChange: setRowSelection,
+    enableRowSelection: true,
+    getRowId: (row) => row.id,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -173,8 +215,7 @@ export default function AdminClubsPage() {
   const openCreate = () => { setEditTarget(null); setForm(emptyForm); setModalOpen(true); };
   const openEdit = (c: Club) => {
     setEditTarget(c);
-    const matchedLeague = leagues.find(l => l.name === c.league);
-    setForm({ name: c.name, country: c.country, league_id: matchedLeague?.id ?? "none", status: c.status });
+    setForm({ name: c.name, country: c.country, league_id: c.league_id ?? "none", status: c.status });
     setModalOpen(true);
   };
 
@@ -253,24 +294,31 @@ export default function AdminClubsPage() {
           <h1 className="text-2xl md:text-3xl font-display font-bold">Clubs</h1>
           <p className="text-muted-foreground mt-1">Manage all registered clubs</p>
         </div>
-        <Button variant="hero" size="sm" onClick={openCreate}><Plus className="w-4 h-4 mr-2" /> Add Club</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}>
+            <FileUp className="w-4 h-4 mr-2" /> Bulk Import
+          </Button>
+          <Button variant="hero" size="sm" onClick={openCreate}><Plus className="w-4 h-4 mr-2" /> Add Club</Button>
+        </div>
       </div>
 
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Total",     value: clubs.length },
-          { label: "Active",    value: clubs.filter((c) => c.status === "active").length },
-          { label: "Pending",   value: clubs.filter((c) => c.status === "pending").length },
-          { label: "Suspended", value: clubs.filter((c) => c.status === "suspended").length },
-        ].map((s) => (
-          <Card key={s.label} className="hover-lift">
-            <CardContent className="pt-4 pb-3">
-              <Building2 className="w-4 h-4 text-primary mb-1" />
-              <div className="text-xl font-display font-bold">{s.value}</div>
-              <div className="text-xs text-muted-foreground">{s.label}</div>
-            </CardContent>
-          </Card>
+          { label: "Total",     value: clubs.length,                                          icon: Building2,   color: "text-primary" },
+          { label: "Active",    value: clubs.filter((c) => c.status === "active").length,     icon: CheckCircle, color: "text-emerald-400" },
+          { label: "Pending",   value: clubs.filter((c) => c.status === "pending").length,    icon: Clock,       color: "text-yellow-400" },
+          { label: "Suspended", value: clubs.filter((c) => c.status === "suspended").length,  icon: XCircle,     color: "text-destructive" },
+        ].map((card) => (
+          <div key={card.label} className="bg-card border border-border rounded-xl p-4 flex items-center gap-4">
+            <div className={`p-2 rounded-lg bg-muted ${card.color}`}>
+              <card.icon className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold">{card.value}</div>
+              <div className="text-xs text-muted-foreground">{card.label}</div>
+            </div>
+          </div>
         ))}
       </div>
 
@@ -298,6 +346,18 @@ export default function AdminClubsPage() {
         </Select>
       </div>
 
+      {selectedIds.length > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2">
+          <span className="text-sm font-medium">{selectedIds.length} row{selectedIds.length !== 1 ? "s" : ""} selected</span>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>Clear</Button>
+            <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
+              <Trash2 className="w-4 h-4 mr-2" /> Delete {selectedIds.length} selected
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="text-sm text-muted-foreground">{filtered.length} club{filtered.length !== 1 ? "s" : ""}</div>
 
       {/* Mobile cards */}
@@ -315,7 +375,7 @@ export default function AdminClubsPage() {
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}><Edit2 className="w-4 h-4" /></Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(c.id)}><Trash2 className="w-4 h-4" /></Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(c.id)} disabled={selectedIds.length > 0}><Trash2 className="w-4 h-4" /></Button>
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
@@ -443,6 +503,30 @@ export default function AdminClubsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedIds.length} club{selectedIds.length !== 1 ? "s" : ""}?</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently remove {selectedIds.length} selected club{selectedIds.length !== 1 ? "s" : ""} and all associated data. This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <BulkImportModal
+        type="clubs"
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        onSuccess={(count) => {
+          client.get<{ items: Club[]; total: number }>("/admin/clubs")
+            .then(({ data }) => setClubs(data.items))
+            .catch(() => {});
+        }}
+      />
     </div>
   );
 }

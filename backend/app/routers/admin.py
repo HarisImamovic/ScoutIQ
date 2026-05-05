@@ -1,10 +1,12 @@
+import io
 import uuid as _uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 
 from app.database import get_db
 from app.dependencies import require_global_admin
@@ -18,6 +20,10 @@ from app.schemas.admin import (
     AdminPlayerItem,
     AdminReportItem,
     AdminUserItem,
+    BulkDeleteRequest,
+    BulkDeleteResult,
+    BulkImportResult,
+    BulkImportRowError,
     CreateClubRequest,
     CreatePlayerRequest,
     CreateReportRequest,
@@ -197,6 +203,7 @@ def list_clubs(
             name=club.name,
             country=club.country,
             league=league_name or "—",
+            league_id=str(club.league_id) if club.league_id else None,
             scout_count=scout_counts.get(club.id, 0),
             player_count=player_counts.get(club.id, 0),
             status=club.status,
@@ -241,11 +248,148 @@ def create_club(
         name=new_club.name,
         country=new_club.country,
         league=league.name if league else "—",
+        league_id=str(league_uuid) if league_uuid else None,
         scout_count=0,
         player_count=0,
         status=new_club.status,
         created_at=new_club.created_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# Users – Bulk delete
+# ---------------------------------------------------------------------------
+
+@router.post("/users/bulk-delete", response_model=BulkDeleteResult)
+def bulk_delete_users(
+    body: BulkDeleteRequest,
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    uuids = []
+    for raw in body.ids:
+        try:
+            uuids.append(_uuid.UUID(raw))
+        except ValueError:
+            pass
+    if not uuids:
+        return BulkDeleteResult(deleted=0)
+    now = datetime.now(timezone.utc)
+    count = (
+        db.query(User)
+        .filter(User.id.in_(uuids), User.deleted_at.is_(None))
+        .update({User.deleted_at: now}, synchronize_session=False)
+    )
+    db.commit()
+    return BulkDeleteResult(deleted=count)
+
+
+# ---------------------------------------------------------------------------
+# Clubs – Bulk import
+# ---------------------------------------------------------------------------
+
+_MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+_VALID_POSITIONS = {"GK", "CB", "LB", "RB", "CDM", "CM", "AM", "CAM", "LW", "RW", "CF", "ST"}
+
+
+@router.get("/clubs/bulk-import/template")
+def download_clubs_template(_: User = Depends(require_global_admin)):
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Clubs"
+    headers = ["name", "country", "league", "status"]
+    ws.append(headers)
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = 20
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=clubs_template.xlsx"},
+    )
+
+
+@router.post("/clubs/bulk-import", response_model=BulkImportResult)
+async def bulk_import_clubs(
+    file: UploadFile = File(...),
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    import openpyxl
+
+    if file.content_type not in (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+    ) and not (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Only Excel files (.xlsx, .xls) are accepted.")
+
+    raw = await file.read()
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File exceeds the 5 MB limit.")
+
+    try:
+        wb = openpyxl.load_workbook(filename=io.BytesIO(raw), read_only=True, data_only=True)
+        ws = wb.active
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not parse the Excel file. Make sure it is a valid .xlsx or .xls file.")
+
+    leagues_by_name = {l.name.strip().lower(): l for l in db.query(League).all()}
+    _VALID_CLUB_STATUSES = {"active", "pending", "suspended"}
+
+    errors: list[BulkImportRowError] = []
+    created = 0
+
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The file has no data rows. Row 1 must be the header.")
+
+    for i, row in enumerate(rows, start=2):
+        name = str(row[0]).strip() if row[0] is not None else ""
+        country = str(row[1]).strip() if len(row) > 1 and row[1] is not None else ""
+        league_raw = str(row[2]).strip() if len(row) > 2 and row[2] is not None else ""
+        status_raw = str(row[3]).strip().lower() if len(row) > 3 and row[3] is not None else "active"
+
+        row_errors: list[BulkImportRowError] = []
+
+        if not name:
+            row_errors.append(BulkImportRowError(row=i, field="name", message="Club name is required."))
+        elif len(name) > 200:
+            row_errors.append(BulkImportRowError(row=i, field="name", message=f"Club name exceeds 200 characters (got {len(name)})."))
+
+        if not country:
+            row_errors.append(BulkImportRowError(row=i, field="country", message="Country is required."))
+        elif len(country) > 100:
+            row_errors.append(BulkImportRowError(row=i, field="country", message=f"Country exceeds 100 characters (got {len(country)})."))
+
+        league_obj = None
+        if league_raw:
+            league_obj = leagues_by_name.get(league_raw.lower())
+            if not league_obj:
+                row_errors.append(BulkImportRowError(row=i, field="league", message=f"League '{league_raw}' not found. Leave blank or use an existing league name."))
+
+        if status_raw not in _VALID_CLUB_STATUSES:
+            row_errors.append(BulkImportRowError(row=i, field="status", message=f"Invalid status '{status_raw}'. Must be one of: active, pending, suspended."))
+
+        if row_errors:
+            errors.extend(row_errors)
+            continue
+
+        new_club = Club(
+            name=name,
+            country=country,
+            league_id=league_obj.id if league_obj else None,
+            status=status_raw,
+        )
+        db.add(new_club)
+        created += 1
+
+    if created:
+        db.commit()
+
+    return BulkImportResult(created=created, errors=errors)
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +469,201 @@ def create_player(
         status=new_player.status,
         created_at=new_player.created_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# Clubs – Bulk delete
+# ---------------------------------------------------------------------------
+
+@router.post("/clubs/bulk-delete", response_model=BulkDeleteResult)
+def bulk_delete_clubs(
+    body: BulkDeleteRequest,
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    uuids = []
+    for raw in body.ids:
+        try:
+            uuids.append(_uuid.UUID(raw))
+        except ValueError:
+            pass
+    if not uuids:
+        return BulkDeleteResult(deleted=0)
+    now = datetime.now(timezone.utc)
+    count = (
+        db.query(Club)
+        .filter(Club.id.in_(uuids), Club.deleted_at.is_(None))
+        .update({Club.deleted_at: now}, synchronize_session=False)
+    )
+    db.commit()
+    return BulkDeleteResult(deleted=count)
+
+
+# ---------------------------------------------------------------------------
+# Players – Bulk import
+# ---------------------------------------------------------------------------
+
+@router.get("/players/bulk-import/template")
+def download_players_template(_: User = Depends(require_global_admin)):
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Players"
+    headers = ["first_name", "last_name", "position", "nationality", "date_of_birth", "club_name", "status", "market_value_millions"]
+    ws.append(headers)
+    ws.append(["Luka", "Modric", "CM", "Croatian", "1985-09-09", "Real Madrid", "active", 5])
+    ws.append(["Erling", "Haaland", "ST", "Norwegian", "2000-07-21", "Manchester City", "active", 180])
+    col_widths = [15, 15, 12, 14, 16, 20, 10, 22]
+    for idx, width in enumerate(col_widths, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = width
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=players_template.xlsx"},
+    )
+
+
+@router.post("/players/bulk-import", response_model=BulkImportResult)
+async def bulk_import_players(
+    file: UploadFile = File(...),
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    import openpyxl
+    from datetime import date as _date
+
+    if file.content_type not in (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+    ) and not (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Only Excel files (.xlsx, .xls) are accepted.")
+
+    raw = await file.read()
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File exceeds the 5 MB limit.")
+
+    try:
+        wb = openpyxl.load_workbook(filename=io.BytesIO(raw), read_only=True, data_only=True)
+        ws = wb.active
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not parse the Excel file. Make sure it is a valid .xlsx or .xls file.")
+
+    clubs_by_name = {c.name.strip().lower(): c for c in db.query(Club).filter(Club.deleted_at.is_(None)).all()}
+    _VALID_PLAYER_STATUSES = {"active", "injured"}
+
+    errors: list[BulkImportRowError] = []
+    created = 0
+
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The file has no data rows. Row 1 must be the header.")
+
+    for i, row in enumerate(rows, start=2):
+        first_name = str(row[0]).strip() if row[0] is not None else ""
+        last_name = str(row[1]).strip() if len(row) > 1 and row[1] is not None else ""
+        position = str(row[2]).strip().upper() if len(row) > 2 and row[2] is not None else ""
+        nationality = str(row[3]).strip() if len(row) > 3 and row[3] is not None else ""
+        dob_raw = row[4] if len(row) > 4 else None
+        club_raw = str(row[5]).strip() if len(row) > 5 and row[5] is not None else ""
+        status_raw = str(row[6]).strip().lower() if len(row) > 6 and row[6] is not None else "active"
+        market_val_raw = row[7] if len(row) > 7 else None
+
+        row_errors: list[BulkImportRowError] = []
+
+        if not first_name:
+            row_errors.append(BulkImportRowError(row=i, field="first_name", message="First name is required."))
+        elif len(first_name) > 100:
+            row_errors.append(BulkImportRowError(row=i, field="first_name", message=f"First name exceeds 100 characters (got {len(first_name)})."))
+
+        if not last_name:
+            row_errors.append(BulkImportRowError(row=i, field="last_name", message="Last name is required."))
+        elif len(last_name) > 100:
+            row_errors.append(BulkImportRowError(row=i, field="last_name", message=f"Last name exceeds 100 characters (got {len(last_name)})."))
+
+        if not position:
+            row_errors.append(BulkImportRowError(row=i, field="position", message="Position is required."))
+        elif position not in _VALID_POSITIONS:
+            row_errors.append(BulkImportRowError(row=i, field="position", message=f"Invalid position '{position}'. Must be one of: {', '.join(sorted(_VALID_POSITIONS))}."))
+
+        if nationality and len(nationality) > 100:
+            row_errors.append(BulkImportRowError(row=i, field="nationality", message=f"Nationality exceeds 100 characters (got {len(nationality)})."))
+
+        dob: _date | None = None
+        if dob_raw is not None and str(dob_raw).strip():
+            if isinstance(dob_raw, _date):
+                dob = dob_raw
+            else:
+                try:
+                    dob = _date.fromisoformat(str(dob_raw).strip())
+                except ValueError:
+                    row_errors.append(BulkImportRowError(row=i, field="date_of_birth", message=f"Invalid date format '{dob_raw}'. Use YYYY-MM-DD."))
+
+        club_obj = None
+        if club_raw:
+            club_obj = clubs_by_name.get(club_raw.lower())
+            if not club_obj:
+                row_errors.append(BulkImportRowError(row=i, field="club_name", message=f"Club '{club_raw}' not found. Leave blank or use an existing club name."))
+
+        if status_raw not in _VALID_PLAYER_STATUSES:
+            row_errors.append(BulkImportRowError(row=i, field="status", message=f"Invalid status '{status_raw}'. Must be one of: active, injured."))
+
+        market_value: int | None = None
+        if market_val_raw is not None and str(market_val_raw).strip():
+            try:
+                mv_millions = float(str(market_val_raw))
+                if mv_millions < 0:
+                    raise ValueError
+                market_value = int(mv_millions * 1_000_000)
+            except (ValueError, TypeError):
+                row_errors.append(BulkImportRowError(row=i, field="market_value_millions", message=f"Invalid market value '{market_val_raw}'. Enter a non-negative number in millions (e.g. 50 = €50M)."))
+
+        if row_errors:
+            errors.extend(row_errors)
+            continue
+
+        new_player = Player(
+            first_name=first_name,
+            last_name=last_name,
+            position=position,
+            nationality=nationality or None,
+            date_of_birth=dob,
+            club_id=club_obj.id if club_obj else None,
+            market_value=market_value,
+            status=status_raw,
+        )
+        db.add(new_player)
+        created += 1
+
+    if created:
+        db.commit()
+
+    return BulkImportResult(created=created, errors=errors)
+
+
+# ---------------------------------------------------------------------------
+# Players – Bulk delete
+# ---------------------------------------------------------------------------
+
+@router.post("/players/bulk-delete", response_model=BulkDeleteResult)
+def bulk_delete_players(
+    body: BulkDeleteRequest,
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    uuids = []
+    for raw in body.ids:
+        try:
+            uuids.append(_uuid.UUID(raw))
+        except ValueError:
+            pass
+    if not uuids:
+        return BulkDeleteResult(deleted=0)
+    count = db.query(Player).filter(Player.id.in_(uuids)).delete(synchronize_session=False)
+    db.commit()
+    return BulkDeleteResult(deleted=count)
 
 
 # ---------------------------------------------------------------------------
@@ -566,6 +905,7 @@ def update_club(
         name=club.name,
         country=club.country,
         league=league.name if league else "—",
+        league_id=str(league_uuid) if league_uuid else None,
         scout_count=scout_count,
         player_count=player_count,
         status=club.status,
@@ -666,6 +1006,29 @@ def delete_player(
 
     db.delete(player)
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Reports – Bulk delete
+# ---------------------------------------------------------------------------
+
+@router.post("/reports/bulk-delete", response_model=BulkDeleteResult)
+def bulk_delete_reports(
+    body: BulkDeleteRequest,
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    uuids = []
+    for raw in body.ids:
+        try:
+            uuids.append(_uuid.UUID(raw))
+        except ValueError:
+            pass
+    if not uuids:
+        return BulkDeleteResult(deleted=0)
+    count = db.query(ScoutingReport).filter(ScoutingReport.id.in_(uuids)).delete(synchronize_session=False)
+    db.commit()
+    return BulkDeleteResult(deleted=count)
 
 
 # ---------------------------------------------------------------------------

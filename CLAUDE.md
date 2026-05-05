@@ -114,3 +114,8 @@ No comments within the code.
 
 - **Loading states**: Use `<Spinner>` from `@/components/ui/spinner` — wrap in `<div className="flex items-center justify-center h-64">`. Available sizes: `sm`, `md`, `lg`. For page-level spinners use `size="lg"` with a `label` prop (e.g. `label="Loading players…"`) — the label renders centered below the spinner. Inline spinners (e.g. inside buttons) omit the label.
 - **Error states**: Use `<Alert variant="destructive">` from `@/components/ui/alert` with `<AlertCircle>` icon, `<AlertTitle>Error</AlertTitle>`, and `<AlertDescription>` — wrap in `<div className="flex items-center justify-center h-64">` with `max-w-md` on the alert.
+
+## Jira Conventions
+
+- **Understanding a ticket**: When you work on a ticket, make sure to thoroughly read the summary and the description. Each ticket will most definitely contain a detailed description. If it's a feature/task, it will contain all details on how and what needs to be implemented, on which files changes need to be made, which endpoints need to be created/managed, if migrations are needed etc. If it's a bug it will always contain detailed steps for replication of the bug, so you should try to replicate the bug before jumping into solving it.
+- **Workflow**: After you are done with Understanding a ticket, you switch the status of the ticket from To Do to In Progress. Once you finish the ticket, move it to QA - To Do status, and from there I will take it.

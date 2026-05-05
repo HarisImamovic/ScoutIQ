@@ -9,7 +9,9 @@ import {
   flexRender,
   ColumnDef,
   SortingState,
+  RowSelectionState,
 } from "@tanstack/react-table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,10 +61,14 @@ import {
   ChevronRight,
   Users,
   AlertCircle,
+  FileUp,
+  CheckCircle,
+  Building2,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import client from "@/api/client";
+import { BulkImportModal } from "@/components/BulkImportModal";
 
 interface Player {
   id: string;
@@ -163,6 +169,9 @@ export default function AdminPlayersPage() {
   const [form, setForm] = useState(emptyForm);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   useEffect(() => {
     client
@@ -225,6 +234,23 @@ export default function AdminPlayersPage() {
 
   const columns: ColumnDef<Player>[] = useMemo(
     () => [
+      {
+        id: "select",
+        header: ({ table }) => (
+          <Checkbox
+            checked={table.getIsAllRowsSelected() || (table.getIsSomeRowsSelected() && "indeterminate")}
+            onCheckedChange={(v) => table.toggleAllRowsSelected(!!v)}
+          />
+        ),
+        cell: ({ row }) => (
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(v) => row.toggleSelected(!!v)}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ),
+        enableSorting: false,
+      },
       {
         id: "name",
         accessorFn: (p) => `${p.first_name} ${p.last_name}`,
@@ -334,6 +360,7 @@ export default function AdminPlayersPage() {
               size="icon"
               className="h-7 w-7 text-destructive hover:text-destructive"
               onClick={() => setDeleteId(row.original.id)}
+              disabled={Object.keys(rowSelection).length > 0}
             >
               <Trash2 className="w-3.5 h-3.5" />
             </Button>
@@ -341,14 +368,33 @@ export default function AdminPlayersPage() {
         ),
       },
     ],
-    [clubs],
+    [clubs, rowSelection],
   );
+
+  const selectedIds = Object.keys(rowSelection);
+
+  const handleBulkDelete = async () => {
+    setBulkDeleteOpen(false);
+    const ids = table.getSelectedRowModel().rows.map((r) => r.original.id);
+    setPlayers((prev) => prev.filter((p) => !ids.includes(p.id)));
+    setRowSelection({});
+    try {
+      await client.post("/admin/players/bulk-delete", { ids });
+      toast.success(`${ids.length} player${ids.length !== 1 ? "s" : ""} deleted.`);
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Failed to delete selected players.");
+    }
+  };
 
   const table = useReactTable({
     data: filtered,
     columns,
-    state: { sorting },
+    state: { sorting, rowSelection },
     onSortingChange: setSorting,
+    onRowSelectionChange: setRowSelection,
+    enableRowSelection: true,
+    getRowId: (row) => row.id,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -443,36 +489,33 @@ export default function AdminPlayersPage() {
             Manage all registered players on the platform
           </p>
         </div>
-        <Button variant="hero" size="sm" onClick={openCreate}>
-          <Plus className="w-4 h-4 mr-2" /> Add Player
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}>
+            <FileUp className="w-4 h-4 mr-2" /> Bulk Import
+          </Button>
+          <Button variant="hero" size="sm" onClick={openCreate}>
+            <Plus className="w-4 h-4 mr-2" /> Add Player
+          </Button>
+        </div>
       </div>
 
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Total", value: players.length },
-          {
-            label: "Active",
-            value: players.filter((p) => p.status === "active").length,
-          },
-          {
-            label: "Injured",
-            value: players.filter((p) => p.status === "injured").length,
-          },
-          {
-            label: "Clubs",
-            value: new Set(players.map((p) => p.club_name).filter(Boolean))
-              .size,
-          },
-        ].map((s) => (
-          <Card key={s.label} className="hover-lift">
-            <CardContent className="pt-4 pb-3">
-              <Users className="w-4 h-4 text-primary mb-1" />
-              <div className="text-xl font-display font-bold">{s.value}</div>
-              <div className="text-xs text-muted-foreground">{s.label}</div>
-            </CardContent>
-          </Card>
+          { label: "Total",   value: players.length,                                          icon: Users,       color: "text-primary" },
+          { label: "Active",  value: players.filter((p) => p.status === "active").length,     icon: CheckCircle, color: "text-emerald-400" },
+          { label: "Injured", value: players.filter((p) => p.status === "injured").length,    icon: AlertCircle, color: "text-destructive" },
+          { label: "Clubs",   value: new Set(players.map((p) => p.club_name).filter(Boolean)).size, icon: Building2, color: "text-amber-400" },
+        ].map((card) => (
+          <div key={card.label} className="bg-card border border-border rounded-xl p-4 flex items-center gap-4">
+            <div className={`p-2 rounded-lg bg-muted ${card.color}`}>
+              <card.icon className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold">{card.value}</div>
+              <div className="text-xs text-muted-foreground">{card.label}</div>
+            </div>
+          </div>
         ))}
       </div>
 
@@ -512,6 +555,18 @@ export default function AdminPlayersPage() {
         </Select>
       </div>
 
+      {selectedIds.length > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2">
+          <span className="text-sm font-medium">{selectedIds.length} row{selectedIds.length !== 1 ? "s" : ""} selected</span>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>Clear</Button>
+            <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
+              <Trash2 className="w-4 h-4 mr-2" /> Delete {selectedIds.length} selected
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="text-sm text-muted-foreground">
         {filtered.length} player{filtered.length !== 1 ? "s" : ""}
       </div>
@@ -532,7 +587,7 @@ export default function AdminPlayersPage() {
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p)}><Edit2 className="w-4 h-4" /></Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(p.id)}><Trash2 className="w-4 h-4" /></Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(p.id)} disabled={selectedIds.length > 0}><Trash2 className="w-4 h-4" /></Button>
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
@@ -787,6 +842,31 @@ export default function AdminPlayersPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedIds.length} player{selectedIds.length !== 1 ? "s" : ""}?</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently remove {selectedIds.length} selected player{selectedIds.length !== 1 ? "s" : ""} from the platform. This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <BulkImportModal
+        type="players"
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        onSuccess={() => {
+          client
+            .get<{ items: Player[]; total: number }>("/admin/players")
+            .then(({ data }) => setPlayers(data.items))
+            .catch(() => {});
+        }}
+      />
     </div>
   );
 }

@@ -60,6 +60,17 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         role=payload.role,
     )
     db.add(user)
+    db.flush()
+
+    if payload.role == "player":
+        from app.models.player import Player
+        db.add(Player(
+            user_id=user.id,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+            status="active",
+        ))
+
     db.commit()
     db.refresh(user)
     return user

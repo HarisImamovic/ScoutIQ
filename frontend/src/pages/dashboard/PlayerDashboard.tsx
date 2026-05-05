@@ -1,59 +1,127 @@
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Spinner } from "@/components/ui/spinner";
 import {
-  TrendingUp, Eye, Target, BarChart3, Clock, Award,
-  Ruler, Weight, Calendar, Zap, Shield, Activity, X
+  Target, TrendingUp, Clock, Eye, AlertCircle,
+  Shield, Activity, Zap, Search,
 } from "lucide-react";
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
+import { playerApi, type PlayerStats } from "@/api/player";
 
-const player = {
-  name: "Alex Johnson",
-  age: 23,
-  height: 183,
-  weight: 77,
-  position: "CAM",
-  nationality: "England",
-  club: "SC Freiburg",
-  clubShort: "SCF",
-  clubColor: "#CC0000",
-  isGoalkeeper: false,
-  hasClub: true,
-  stats: {
-    goals: 12,
-    assists: 8,
-    minutesPlayed: 1890,
-    xg: 9.3,
-    xa: 6.8,
-    defensiveContributions: 24,
-    tackles: 38,
-    saves: 0,
-    cleansheets: 0,
-  },
-};
+const GK_POS = new Set(["GK"]);
+const DEF_POS = new Set(["CB", "LB", "RB", "LWB", "RWB", "SW", "CDM"]);
+const MID_POS = new Set(["CM", "CAM", "AM", "LM", "RM"]);
 
-const scoutingInterest = [
-  { scout: "Marcus Weber", club: "Bayern Munich", time: "2 hours ago" },
-  { scout: "Carlos Mendez", club: "Real Madrid", time: "1 day ago" },
-  { scout: "James Wright", club: "Manchester City", time: "3 days ago" },
-];
+function get4thStat(position: string | null, stats: PlayerStats | null) {
+  const pos = (position ?? "").toUpperCase();
+  if (GK_POS.has(pos)) {
+    return { icon: Shield, label: "Saves", value: stats?.saves ?? "—", color: "text-emerald-500" };
+  }
+  if (DEF_POS.has(pos)) {
+    return { icon: Shield, label: "Def. Contribs", value: stats?.defensive_contributions ?? "—", color: "text-blue-500" };
+  }
+  if (MID_POS.has(pos)) {
+    return { icon: Activity, label: "Chances Created", value: stats?.chances_created ?? "—", color: "text-orange-500" };
+  }
+  return { icon: Zap, label: "Dribbles", value: stats?.dribbles ?? "—", color: "text-yellow-500" };
+}
+
+function formatValue(v: number): string {
+  if (v >= 1_000_000) return `€${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `€${(v / 1_000).toFixed(0)}K`;
+  return `€${v}`;
+}
+
+function formatMonth(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const hours = Math.floor(diff / 3_600_000);
+  if (hours < 1) return "just now";
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
 
 export default function PlayerDashboard() {
-  const { stats, isGoalkeeper, hasClub } = player;
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["player-dashboard"],
+    queryFn: playerApi.getDashboard,
+    staleTime: 30_000,
+  });
 
-  const coreStats = [
-    { label: "Goals", value: stats.goals, icon: Target, color: "text-primary", change: "+3" },
-    { label: "Assists", value: stats.assists, icon: TrendingUp, color: "text-secondary", change: "+2" },
-    { label: "Minutes", value: stats.minutesPlayed.toLocaleString(), icon: Clock, color: "text-primary", change: "" },
-    { label: "xG", value: stats.xg.toFixed(1), icon: Zap, color: "text-yellow-500", change: "" },
-    { label: "xA", value: stats.xa.toFixed(1), icon: Activity, color: "text-orange-500", change: "" },
-    { label: "Def. Contribs.", value: stats.defensiveContributions, icon: Shield, color: "text-blue-500", change: "" },
-    { label: "Tackles", value: stats.tackles, icon: BarChart3, color: "text-purple-500", change: "" },
-    ...(isGoalkeeper
-      ? [
-          { label: "Saves", value: stats.saves, icon: Shield, color: "text-emerald-500", change: "" },
-          { label: "Cleansheets", value: stats.cleansheets, icon: Award, color: "text-primary", change: "" },
-        ]
-      : []),
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Spinner size="lg" label="Loading dashboard…" />
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Alert variant="destructive" className="max-w-md">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>Failed to load dashboard. Please refresh the page.</AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  if (!data.has_club) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-display font-bold">Player Dashboard</h1>
+          <p className="text-muted-foreground mt-1">Your scouting profile and statistics</p>
+        </div>
+
+        <div className="flex items-center justify-center py-16">
+          <div className="text-center max-w-sm space-y-4">
+            <div className="mx-auto w-20 h-20 rounded-2xl bg-muted flex items-center justify-center">
+              <Search className="w-10 h-10 text-muted-foreground" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-xl font-display font-bold">Not assigned to a club yet</h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                You haven't been assigned to a club. Your profile is still visible to scouts —
+                they can discover and save you as a prospect at any time.
+              </p>
+            </div>
+            <div className="pt-2">
+              <Badge variant="outline" className="text-xs">
+                {data.first_name} {data.last_name} · Free Agent
+              </Badge>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const { club, stats, position, nationality, age, market_value, market_value_history, scouting_interest } = data;
+  const fourth = get4thStat(position, stats);
+
+  const chartData = market_value_history.map((h) => ({
+    month: formatMonth(h.recorded_at),
+    value: h.value,
+  }));
+
+  const statCards = [
+    { icon: Clock, label: "Minutes", value: stats?.minutes_played?.toLocaleString() ?? "—", color: "text-primary" },
+    { icon: Target, label: "Goals", value: stats?.goals ?? "—", color: "text-primary" },
+    { icon: TrendingUp, label: "Assists", value: stats?.assists ?? "—", color: "text-secondary" },
+    { icon: fourth.icon, label: fourth.label, value: fourth.value, color: fourth.color },
   ];
 
   return (
@@ -61,120 +129,115 @@ export default function PlayerDashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-display font-bold">Player Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Track your performance and profile</p>
+          <p className="text-muted-foreground mt-1">Your scouting profile and statistics</p>
         </div>
-        <Badge variant="outline" className="self-start sm:self-auto text-sm px-3 py-1">
-          {player.position} · {player.nationality}
-        </Badge>
+        {position && (
+          <Badge variant="outline" className="self-start sm:self-auto text-sm px-3 py-1">
+            {position}{nationality ? ` · ${nationality}` : ""}
+          </Badge>
+        )}
       </div>
 
-      {/* Player identity */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
-            {/* Club logo or no-club placeholder */}
             <div className="flex-shrink-0">
-              {hasClub ? (
+              {club?.primary_color ? (
                 <div
                   className="w-20 h-20 rounded-2xl flex items-center justify-center text-white font-display font-bold text-xl shadow-lg"
-                  style={{ backgroundColor: player.clubColor }}
+                  style={{ backgroundColor: club.primary_color }}
                 >
-                  {player.clubShort}
+                  {club.short_name ?? club.name.slice(0, 3).toUpperCase()}
                 </div>
               ) : (
-                <div className="relative w-20 h-20 rounded-2xl bg-muted/60 border-2 border-dashed border-muted-foreground/30 flex items-center justify-center">
-                  <svg className="w-10 h-10 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <X className="w-12 h-12 text-destructive/60 stroke-[1.5]" />
-                  </div>
+                <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center font-display font-bold text-primary text-xl">
+                  {club?.name.slice(0, 3).toUpperCase() ?? "—"}
                 </div>
               )}
             </div>
-
             <div className="flex-1 text-center sm:text-left">
-              <h2 className="text-xl font-display font-bold">{player.name}</h2>
-              <p className="text-muted-foreground text-sm mt-0.5">
-                {hasClub ? player.club : "No Club — Free Agent"}
-              </p>
+              <h2 className="text-xl font-display font-bold">{data.first_name} {data.last_name}</h2>
+              <p className="text-muted-foreground text-sm mt-0.5">{club?.name}</p>
+              {club?.league_name && (
+                <p className="text-xs text-muted-foreground">{club.league_name} · {club.country}</p>
+              )}
               <div className="flex flex-wrap justify-center sm:justify-start gap-4 mt-4">
-                <div className="flex items-center gap-1.5 text-sm">
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
-                  <span>{player.age} years old</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-sm">
-                  <Ruler className="w-4 h-4 text-muted-foreground" />
-                  <span>{player.height} cm</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-sm">
-                  <Weight className="w-4 h-4 text-muted-foreground" />
-                  <span>{player.weight} kg</span>
-                </div>
+                {age != null && (
+                  <div className="text-sm text-muted-foreground">{age} years old</div>
+                )}
+                {market_value != null && (
+                  <div className="text-sm font-medium">{formatValue(market_value)}</div>
+                )}
+                <Badge variant="secondary" className="text-xs capitalize">{data.status}</Badge>
               </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Stats grid */}
-      <div>
-        <h2 className="text-lg font-display font-semibold mb-3">Season Statistics</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {coreStats.map((s) => (
-            <Card key={s.label} className="hover-lift">
-              <CardContent className="pt-5 pb-4">
-                <div className="flex items-center justify-between mb-1.5">
-                  <s.icon className={`w-4 h-4 ${s.color}`} />
-                  {s.change && (
-                    <Badge variant="secondary" className="text-xs bg-primary/10 text-primary border-0">
-                      {s.change}
-                    </Badge>
-                  )}
-                </div>
-                <div className="text-2xl font-display font-bold">{s.value}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">{s.label}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {statCards.map((s) => (
+          <Card key={s.label} className="hover-lift">
+            <CardContent className="pt-5 pb-4">
+              <s.icon className={`w-4 h-4 ${s.color} mb-1.5`} />
+              <div className="text-2xl font-display font-bold">{s.value}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{s.label}</div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Profile Completion */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg font-display flex items-center gap-2">
-              <Award className="w-5 h-5 text-primary" /> Profile Completion
-            </CardTitle>
+            <CardTitle className="text-lg font-display">Market Value Over Time</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span>Overall</span>
-                <span className="font-semibold text-primary">72%</span>
+          <CardContent>
+            {chartData.length === 0 ? (
+              <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
+                No market value history available yet.
               </div>
-              <Progress value={72} className="h-2" />
-            </div>
-            {[
-              { label: "Personal Info", value: 100 },
-              { label: "Stats", value: 80 },
-              { label: "Highlights", value: 40 },
-              { label: "Documents", value: 60 },
-            ].map((item) => (
-              <div key={item.label}>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-muted-foreground">{item.label}</span>
-                  <span>{item.value}%</span>
-                </div>
-                <Progress value={item.value} className="h-1.5" />
-              </div>
-            ))}
+            ) : (
+              <ResponsiveContainer width="100%" height={192}>
+                <LineChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tickFormatter={formatValue}
+                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={56}
+                  />
+                  <Tooltip
+                    formatter={(v: number) => [formatValue(v), "Market Value"]}
+                    contentStyle={{
+                      background: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
+                      fontSize: "12px",
+                    }}
+                    labelStyle={{ color: "hsl(var(--muted-foreground))" }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    stroke="hsl(var(--primary))"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 
-        {/* Scouting Interest */}
         <Card>
           <CardHeader>
             <CardTitle className="text-lg font-display flex items-center gap-2">
@@ -182,17 +245,31 @@ export default function PlayerDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {scoutingInterest.map((item, i) => (
-                <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                  <div>
-                    <div className="font-medium text-sm">{item.scout}</div>
-                    <div className="text-xs text-muted-foreground">{item.club}</div>
+            {scouting_interest.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-36 text-center gap-2">
+                <Eye className="w-8 h-8 text-muted-foreground/30" />
+                <p className="text-sm text-muted-foreground">
+                  No scout activity yet. Scouts who save or report on you will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {scouting_interest.map((item) => (
+                  <div
+                    key={item.scout_id}
+                    className="flex items-center justify-between p-3 rounded-lg bg-muted/50"
+                  >
+                    <div>
+                      <div className="font-medium text-sm">{item.scout_name}</div>
+                      <div className="text-xs text-muted-foreground capitalize">{item.activity}</div>
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                      {timeAgo(item.timestamp)}
+                    </span>
                   </div>
-                  <span className="text-xs text-muted-foreground">{item.time}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
