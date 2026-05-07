@@ -67,7 +67,7 @@ const emptyForm = { name: "", country: "", league_id: "none", status: "active" }
 
 export default function AdminClubsPage() {
   const [clubs, setClubs] = useState<Club[]>([]);
-  const [leagues, setLeagues] = useState<{ id: string; name: string }[]>([]);
+  const [leagues, setLeagues] = useState<{ id: string; name: string; country: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -94,6 +94,13 @@ export default function AdminClubsPage() {
   }, []);
 
   const leagueNames = useMemo(() => Array.from(new Set(clubs.map((c) => c.league).filter(Boolean))).sort(), [clubs]);
+
+  const countries = useMemo(() => Array.from(new Set(leagues.map((l) => l.country))).sort(), [leagues]);
+
+  const filteredLeagues = useMemo(
+    () => (form.country ? leagues.filter((l) => l.country === form.country) : []),
+    [leagues, form.country],
+  );
 
   const filtered = useMemo(() => clubs.filter((c) => {
     const q = globalFilter.toLowerCase();
@@ -230,14 +237,15 @@ export default function AdminClubsPage() {
   const openCreate = () => { setEditTarget(null); setForm(emptyForm); setLogoFile(null); setModalOpen(true); };
   const openEdit = (c: Club) => {
     setEditTarget(c);
-    setForm({ name: c.name, country: c.country, league_id: c.league_id ?? "none", status: c.status });
+    const currentLeague = leagues.find((l) => l.id === c.league_id);
+    setForm({ name: c.name, country: currentLeague?.country ?? c.country, league_id: c.league_id ?? "none", status: c.status });
     setLogoFile(null);
     setModalOpen(true);
   };
 
   const hasErrors =
     !form.name.trim() || form.name.length > 200 ||
-    !form.country.trim() || form.country.length > 100;
+    !form.country.trim();
 
   const handleSave = async () => {
     if (editTarget) {
@@ -492,23 +500,28 @@ export default function AdminClubsPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label>Country</Label>
-                  <CharCount value={form.country} max={100} />
-                </div>
-                <Input
+                <Label>Country</Label>
+                <Select
                   value={form.country}
-                  onChange={(e) => setForm({ ...form, country: e.target.value })}
-                  className={`bg-muted/50 ${form.country.length > 100 ? "border-destructive focus-visible:ring-destructive" : ""}`}
-                />
-                {form.country.length > 100 && <p className="text-xs text-destructive">Must not exceed 100 characters</p>}
+                  onValueChange={(v) => setForm({ ...form, country: v, league_id: "none" })}
+                >
+                  <SelectTrigger className="bg-muted/50"><SelectValue placeholder="Select country" /></SelectTrigger>
+                  <SelectContent>
+                    {countries.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="space-y-1.5"><Label>League</Label>
-                <Select value={form.league_id} onValueChange={(v) => setForm({ ...form, league_id: v })}>
-                  <SelectTrigger className="bg-muted/50"><SelectValue placeholder="No league" /></SelectTrigger>
+              <div className="space-y-1.5">
+                <Label>League</Label>
+                <Select
+                  value={form.league_id}
+                  onValueChange={(v) => setForm({ ...form, league_id: v })}
+                  disabled={!form.country}
+                >
+                  <SelectTrigger className="bg-muted/50"><SelectValue placeholder={form.country ? "No league" : "Select country first"} /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">No league</SelectItem>
-                    {leagues.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                    {filteredLeagues.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

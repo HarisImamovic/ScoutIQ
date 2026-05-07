@@ -49,7 +49,7 @@ def list_leagues(
     db: Session = Depends(get_db),
 ):
     leagues = db.query(League).order_by(League.name).all()
-    return [{"id": str(l.id), "name": l.name} for l in leagues]
+    return [{"id": str(l.id), "name": l.name, "country": l.country} for l in leagues]
 
 
 @router.get("/scouts")
