@@ -511,7 +511,9 @@ export default function AdminUsersPage() {
                   onChange={(e) => { setForm({ ...form, first_name: e.target.value }); setErrors(p => ({ ...p, first_name: undefined })); }}
                   className={`bg-muted/50 ${errors.first_name ? "border-destructive focus-visible:ring-destructive" : ""}`}
                 />
-                {errors.first_name && <p className="text-xs text-destructive">{errors.first_name}</p>}
+                {errors.first_name
+                  ? <p className="text-xs text-destructive">{errors.first_name}</p>
+                  : errors.last_name ? <div className="h-4" /> : null}
               </div>
               {/* Last Name */}
               <div className="space-y-1.5">
@@ -524,7 +526,9 @@ export default function AdminUsersPage() {
                   onChange={(e) => { setForm({ ...form, last_name: e.target.value }); setErrors(p => ({ ...p, last_name: undefined })); }}
                   className={`bg-muted/50 ${errors.last_name ? "border-destructive focus-visible:ring-destructive" : ""}`}
                 />
-                {errors.last_name && <p className="text-xs text-destructive">{errors.last_name}</p>}
+                {errors.last_name
+                  ? <p className="text-xs text-destructive">{errors.last_name}</p>
+                  : errors.first_name ? <div className="h-4" /> : null}
               </div>
             </div>
             {/* Email */}

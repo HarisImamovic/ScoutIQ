@@ -126,7 +126,7 @@ function CharCount({ value, max }: { value: string; max: number }) {
         ? "text-yellow-500"
         : "text-muted-foreground";
   return (
-    <span className={`text-xs ${color}`}>
+    <span className={`text-xs leading-none ${color}`}>
       {len}/{max}
     </span>
   );
@@ -704,11 +704,9 @@ export default function AdminPlayersPage() {
                   }
                   className={`bg-muted/50 ${form.first_name.length > 100 ? "border-destructive focus-visible:ring-destructive" : ""}`}
                 />
-                {form.first_name.length > 100 && (
-                  <p className="text-xs text-destructive">
-                    Exceeds 100 character limit
-                  </p>
-                )}
+                {form.first_name.length > 100
+                  ? <p className="text-xs text-destructive">Exceeds 100 character limit</p>
+                  : form.last_name.length > 100 ? <div className="h-4" /> : null}
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -722,11 +720,9 @@ export default function AdminPlayersPage() {
                   }
                   className={`bg-muted/50 ${form.last_name.length > 100 ? "border-destructive focus-visible:ring-destructive" : ""}`}
                 />
-                {form.last_name.length > 100 && (
-                  <p className="text-xs text-destructive">
-                    Exceeds 100 character limit
-                  </p>
-                )}
+                {form.last_name.length > 100
+                  ? <p className="text-xs text-destructive">Exceeds 100 character limit</p>
+                  : form.first_name.length > 100 ? <div className="h-4" /> : null}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -766,7 +762,9 @@ export default function AdminPlayersPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>Club</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Club</Label>
+                </div>
                 <Select
                   value={form.club_id}
                   onValueChange={(v) => setForm({ ...form, club_id: v })}
@@ -783,6 +781,7 @@ export default function AdminPlayersPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {form.nationality.length > 100 && <div className="h-4" />}
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -797,9 +796,7 @@ export default function AdminPlayersPage() {
                   className={`bg-muted/50 ${form.nationality.length > 100 ? "border-destructive focus-visible:ring-destructive" : ""}`}
                 />
                 {form.nationality.length > 100 && (
-                  <p className="text-xs text-destructive">
-                    Exceeds 100 character limit
-                  </p>
+                  <p className="text-xs text-destructive">Exceeds 100 character limit</p>
                 )}
               </div>
             </div>
