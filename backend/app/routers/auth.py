@@ -1,5 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
+import hashlib
+import secrets
+
 import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from google.auth.transport.requests import Request as GoogleAuthRequest
@@ -9,14 +12,18 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.dependencies import get_current_user
+from app.email import send_password_reset_email
 from app.limiter import limiter
+from app.models.password_reset_token import PasswordResetToken
 from app.models.user import RefreshToken, User
 from app.schemas.auth import (
     ChangePasswordRequest,
+    ForgotPasswordRequest,
     GoogleCallbackRequest,
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     TokenPairResponse,
     UpdateProfileRequest,
 )
@@ -53,6 +60,17 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         role=payload.role,
     )
     db.add(user)
+    db.flush()
+
+    if payload.role == "player":
+        from app.models.player import Player
+        db.add(Player(
+            user_id=user.id,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+            status="active",
+        ))
+
     db.commit()
     db.refresh(user)
     return user
@@ -241,6 +259,91 @@ def change_password(
         )
     current_user.password_hash = hash_password(payload.new_password)
     current_user.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+_RESET_GENERIC = {"message": "If an account with that email exists, a password reset link has been sent."}
+
+
+@router.post("/forgot-password")
+@limiter.limit("5/minute")
+def forgot_password(
+    request: Request,
+    payload: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    user = (
+        db.query(User)
+        .filter(User.email == payload.email, User.deleted_at.is_(None))
+        .first()
+    )
+
+    if not user or not user.password_hash or user.status != "active":
+        return _RESET_GENERIC
+
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.used.is_(False),
+    ).update({"used": True})
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+    db.add(
+        PasswordResetToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        )
+    )
+    db.commit()
+
+    reset_link = f"{settings.frontend_url}/reset-password?token={raw_token}"
+
+    try:
+        send_password_reset_email(to_email=user.email, reset_link=reset_link)
+    except Exception:
+        pass
+
+    return _RESET_GENERIC
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("10/minute")
+def reset_password(
+    request: Request,
+    payload: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    token_hash = hashlib.sha256(payload.token.encode()).hexdigest()
+
+    record = (
+        db.query(PasswordResetToken)
+        .filter(PasswordResetToken.token_hash == token_hash)
+        .first()
+    )
+
+    if not record:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset link.")
+
+    if record.used:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This reset link has already been used.")
+
+    if record.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This reset link has expired.")
+
+    user = (
+        db.query(User)
+        .filter(User.id == record.user_id, User.deleted_at.is_(None))
+        .first()
+    )
+
+    if not user or user.status != "active":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset link.")
+
+    user.password_hash = hash_password(payload.new_password)
+    user.updated_at = datetime.now(timezone.utc)
+    record.used = True
     db.commit()
 
 

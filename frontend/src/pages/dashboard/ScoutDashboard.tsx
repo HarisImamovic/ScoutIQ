@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Eye, Bookmark, FileText, ArrowRight, AlertCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { scoutApi } from "@/api/scout";
+import { ClubLogo } from "@/components/ClubLogo";
 
 function formatMarketValue(v: number | null): string {
   if (v == null) return "—";
@@ -96,7 +97,12 @@ export default function ScoutDashboard() {
                     </div>
                     <div>
                       <div className="font-medium text-sm">{p.first_name} {p.last_name}</div>
-                      <div className="text-xs text-muted-foreground">{p.club_name ?? "—"}</div>
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        {p.club_name && (
+                          <ClubLogo name={p.club_name} logoUrl={p.club_logo_url} size="sm" className="w-4 h-4" />
+                        )}
+                        {p.club_name ?? "—"}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -133,9 +139,14 @@ export default function ScoutDashboard() {
                   key={p.player_id}
                   className="flex items-center justify-between p-3 rounded-lg bg-muted/50"
                 >
-                  <div>
-                    <div className="font-medium text-sm">{p.first_name} {p.last_name}</div>
-                    <div className="text-xs text-muted-foreground">{p.club_name ?? "—"}</div>
+                  <div className="flex items-center gap-2">
+                    {p.club_name && (
+                      <ClubLogo name={p.club_name} logoUrl={p.club_logo_url} size="sm" />
+                    )}
+                    <div>
+                      <div className="font-medium text-sm">{p.first_name} {p.last_name}</div>
+                      <div className="text-xs text-muted-foreground">{p.club_name ?? "—"}</div>
+                    </div>
                   </div>
                   <Badge variant="outline">{p.position}</Badge>
                 </div>

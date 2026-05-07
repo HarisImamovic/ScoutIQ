@@ -3,6 +3,25 @@ from typing import Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+
+class BulkImportRowError(BaseModel):
+    row: int
+    field: str
+    message: str
+
+
+class BulkImportResult(BaseModel):
+    created: int
+    errors: List[BulkImportRowError]
+
+
+class BulkDeleteRequest(BaseModel):
+    ids: List[str] = Field(min_length=1)
+
+
+class BulkDeleteResult(BaseModel):
+    deleted: int
+
 T = TypeVar("T")
 
 # ---------------------------------------------------------------------------
@@ -39,6 +58,8 @@ class AdminClubItem(BaseModel):
     name: str
     country: str
     league: str
+    league_id: Optional[str]
+    logo_url: Optional[str] = None
     scout_count: int
     player_count: int
     status: str
@@ -53,7 +74,7 @@ class AdminPlayerItem(BaseModel):
     last_name: str
     date_of_birth: Optional[date]
     nationality: Optional[str]
-    position: str
+    position: Optional[str]
     club_name: Optional[str]
     market_value: Optional[int]
     status: str

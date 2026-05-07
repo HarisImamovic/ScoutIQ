@@ -65,7 +65,7 @@ export default function ReportsPage() {
       qc.invalidateQueries({ queryKey: ["scout-reports"] });
       qc.invalidateQueries({ queryKey: ["scout-dashboard"] });
       setModalMode(null);
-      toast.success("Report created.");
+      toast.success("Report created successfully.");
     },
   });
 
@@ -91,7 +91,7 @@ export default function ReportsPage() {
       qc.invalidateQueries({ queryKey: ["scout-reports"] });
       qc.invalidateQueries({ queryKey: ["scout-dashboard"] });
       setDeleteId(null);
-      toast.success("Report deleted.");
+      toast.success("Report deleted successfully.");
     },
     onError: () => {
       toast.error("Failed to delete report.");
@@ -172,7 +172,37 @@ export default function ReportsPage() {
           </Alert>
         </div>
       ) : (
-        <Card>
+        <>
+        {/* Mobile cards */}
+        <div className="md:hidden space-y-3">
+          {reports.length === 0 ? (
+            <p className="text-center py-12 text-muted-foreground">No reports yet. Create your first scouting report.</p>
+          ) : reports.map((r) => (
+            <div key={r.id} className="bg-card border border-border rounded-xl p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-medium text-sm">{r.player_name}</p>
+                  <p className="text-xs text-muted-foreground">{r.position}</p>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openView(r)}><Eye className="w-3.5 h-3.5" /></Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(r)}><Edit2 className="w-3.5 h-3.5" /></Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(r.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-display font-bold text-primary text-sm">{r.rating}</span>
+                <Badge variant="outline" className={statusColors[r.status]}>{capitalize(r.status)}</Badge>
+                <span className="text-xs text-muted-foreground ml-auto">
+                  {new Date(r.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop table */}
+        <Card className="hidden md:block">
           <CardContent className="pt-6">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -181,7 +211,7 @@ export default function ReportsPage() {
                     <th className="text-left py-3 px-2 text-muted-foreground font-medium">Player</th>
                     <th className="text-left py-3 px-2 text-muted-foreground font-medium">Rating</th>
                     <th className="text-left py-3 px-2 text-muted-foreground font-medium">Status</th>
-                    <th className="text-left py-3 px-2 text-muted-foreground font-medium hidden md:table-cell">Date</th>
+                    <th className="text-left py-3 px-2 text-muted-foreground font-medium">Date</th>
                     <th className="text-right py-3 px-2 text-muted-foreground font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -207,7 +237,7 @@ export default function ReportsPage() {
                             {capitalize(r.status)}
                           </Badge>
                         </td>
-                        <td className="py-3 px-2 text-muted-foreground hidden md:table-cell">
+                        <td className="py-3 px-2 text-muted-foreground">
                           {new Date(r.created_at).toLocaleDateString("en-GB", {
                             day: "2-digit",
                             month: "short",
@@ -240,6 +270,7 @@ export default function ReportsPage() {
             </div>
           </CardContent>
         </Card>
+        </>
       )}
 
       <Dialog open={modalMode === "view"} onOpenChange={() => setModalMode(null)}>

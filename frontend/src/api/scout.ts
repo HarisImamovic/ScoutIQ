@@ -1,4 +1,5 @@
 import client from "./client";
+import type { HighlightItem } from "./player";
 
 export interface ScoutDashboardStats {
   players_viewed: number;
@@ -13,6 +14,7 @@ export interface RecentPlayerItem {
   position: string;
   nationality: string | null;
   club_name: string | null;
+  club_logo_url: string | null;
   age: number | null;
   market_value: number | null;
   last_viewed: string;
@@ -25,6 +27,7 @@ export interface SavedProspectSummary {
   position: string;
   nationality: string | null;
   club_name: string | null;
+  club_logo_url: string | null;
   age: number | null;
   saved_at: string;
 }
@@ -39,11 +42,12 @@ export interface ScoutPlayerItem {
   id: string;
   first_name: string;
   last_name: string;
-  position: string;
+  position: string | null;
   age: number | null;
   nationality: string | null;
   club_id: string | null;
   club_name: string | null;
+  club_logo_url: string | null;
   market_value: number | null;
   status: string;
   is_saved: boolean;
@@ -61,10 +65,11 @@ export interface ScoutSavedProspectItem {
   player_id: string;
   first_name: string;
   last_name: string;
-  position: string;
+  position: string | null;
   age: number | null;
   nationality: string | null;
   club_name: string | null;
+  club_logo_url: string | null;
   market_value: number | null;
   saved_at: string;
 }
@@ -93,7 +98,7 @@ export interface PlayerDropdownItem {
   id: string;
   first_name: string;
   last_name: string;
-  position: string;
+  position: string | null;
 }
 
 export interface CreateReportPayload {
@@ -140,4 +145,7 @@ export const scoutApi = {
 
   deleteReport: (id: string): Promise<void> =>
     client.delete(`/scout/reports/${id}`).then(() => undefined),
+
+  getPlayerHighlights: (playerId: string): Promise<HighlightItem[]> =>
+    client.get(`/highlights/player/${playerId}`).then((r) => r.data),
 };

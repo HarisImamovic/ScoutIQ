@@ -57,6 +57,17 @@ class User(Base):
         back_populates="scout",
         cascade="all, delete-orphan",
     )
+    password_reset_tokens = relationship(
+        "PasswordResetToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    player_profile = relationship(
+        "Player",
+        back_populates="user",
+        uselist=False,
+        foreign_keys="[Player.user_id]",
+    )
 
 
 class RefreshToken(Base):

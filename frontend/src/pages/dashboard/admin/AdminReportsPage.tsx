@@ -9,9 +9,13 @@ import {
   flexRender,
   createColumnHelper,
   SortingState,
+  RowSelectionState,
 } from "@tanstack/react-table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -21,7 +25,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  FileText, Eye, Edit2, Trash2, ArrowUpDown, ArrowUp, ArrowDown,
+  Plus, FileText, Eye, Edit2, Trash2, ArrowUpDown, ArrowUp, ArrowDown,
   ChevronLeft, ChevronRight, Search, CheckCircle, Clock, XCircle, Star, AlertCircle,
   ChevronsUpDown, Check,
 } from "lucide-react";
@@ -97,6 +101,8 @@ export default function AdminReportsPage() {
   const [playerOpen, setPlayerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -151,6 +157,22 @@ export default function AdminReportsPage() {
     !form.rating || (form.rating as number) < 1 || (form.rating as number) > 100;
 
   const columns = useMemo(() => [
+    columnHelper.display({
+      id: "select",
+      header: ({ table }) => (
+        <Checkbox
+          checked={table.getIsAllRowsSelected() || (table.getIsSomeRowsSelected() && "indeterminate")}
+          onCheckedChange={(v) => table.toggleAllRowsSelected(!!v)}
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(v) => row.toggleSelected(!!v)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ),
+    }),
     columnHelper.accessor("player_name", {
       header: ({ column }) => <button onClick={() => column.toggleSorting()} className="flex items-center">Player <SortIcon column={column} /></button>,
       cell: info => (
@@ -193,19 +215,38 @@ export default function AdminReportsPage() {
           <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(row.original)}>
             <Edit2 className="w-4 h-4" />
           </Button>
-          <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(row.original.id)}>
+          <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(row.original.id)} disabled={Object.keys(rowSelection).length > 0}>
             <Trash2 className="w-4 h-4" />
           </Button>
         </div>
       ),
     }),
-  ], []);
+  ], [rowSelection]);
+
+  const selectedIds = Object.keys(rowSelection);
+
+  const handleBulkDelete = async () => {
+    setBulkDeleteOpen(false);
+    const ids = table.getSelectedRowModel().rows.map((r) => r.original.id);
+    setReports((prev) => prev.filter((r) => !ids.includes(r.id)));
+    setRowSelection({});
+    try {
+      await client.post("/admin/reports/bulk-delete", { ids });
+      toast.success(`${ids.length} report${ids.length !== 1 ? "s" : ""} deleted successfully.`);
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Failed to delete selected reports.");
+    }
+  };
 
   const table = useReactTable({
     data: filtered,
     columns,
-    state: { sorting },
+    state: { sorting, rowSelection },
     onSortingChange: setSorting,
+    onRowSelectionChange: setRowSelection,
+    enableRowSelection: true,
+    getRowId: (row) => row.id,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -240,7 +281,7 @@ export default function AdminReportsPage() {
         });
         setReports(prev => [data, ...prev]);
         setEditOpen(false);
-        toast.success("Report created.");
+        toast.success("Report created successfully.");
       }
     } catch (err: any) {
       const detail = err.response?.data?.detail;
@@ -256,7 +297,7 @@ export default function AdminReportsPage() {
     setReports(prev => prev.filter(r => r.id !== id));
     try {
       await client.delete(`/admin/reports/${id}`);
-      toast.success("Report deleted.");
+      toast.success("Report deleted successfully.");
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       toast.error(typeof detail === "string" ? detail : "Failed to delete report.");
@@ -289,10 +330,10 @@ export default function AdminReportsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-display font-bold">Reports</h1>
-          <p className="text-muted-foreground text-sm">Manage all scouting reports across the platform</p>
+          <h1 className="text-2xl md:text-3xl font-display font-bold">Reports</h1>
+          <p className="text-muted-foreground mt-1">Manage all scouting reports across the platform</p>
         </div>
-        <Button onClick={openCreate} className="gap-2"><FileText className="w-4 h-4" />Add Report</Button>
+        <Button variant="hero" size="sm" onClick={openCreate}><Plus className="w-4 h-4 mr-2" />Add Report</Button>
       </div>
 
       {/* Summary cards */}
@@ -315,14 +356,26 @@ export default function AdminReportsPage() {
         ))}
       </div>
 
+      {selectedIds.length > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2">
+          <span className="text-sm font-medium">{selectedIds.length} row{selectedIds.length !== 1 ? "s" : ""} selected</span>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>Clear</Button>
+            <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
+              <Trash2 className="w-4 h-4 mr-2" /> Delete {selectedIds.length} selected
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search player or scout..." className="pl-10" value={globalFilter} onChange={e => setGlobalFilter(e.target.value)} />
+          <Input placeholder="Search by player or scout…" className="pl-10 bg-muted/50" value={globalFilter} onChange={e => setGlobalFilter(e.target.value)} />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+          <SelectTrigger className="w-full sm:w-44 bg-muted/50"><SelectValue placeholder="All Statuses" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
             <SelectItem value="draft">Draft</SelectItem>
@@ -332,7 +385,7 @@ export default function AdminReportsPage() {
           </SelectContent>
         </Select>
         <Select value={positionFilter} onValueChange={setPositionFilter}>
-          <SelectTrigger className="w-full sm:w-40"><SelectValue placeholder="All Positions" /></SelectTrigger>
+          <SelectTrigger className="w-full sm:w-40 bg-muted/50"><SelectValue placeholder="All Positions" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Positions</SelectItem>
             {positions.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
@@ -340,57 +393,97 @@ export default function AdminReportsPage() {
         </Select>
       </div>
 
-      {/* Table */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b border-border bg-muted/30">
-              {table.getHeaderGroups().map(hg => (
-                <tr key={hg.id}>
-                  {hg.headers.map(header => (
-                    <th key={header.id} className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                    </th>
-                  ))}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
-              {table.getRowModel().rows.length === 0 ? (
-                <tr><td colSpan={columns.length} className="text-center py-12 text-muted-foreground">No reports found</td></tr>
-              ) : table.getRowModel().rows.map(row => (
-                <tr key={row.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                  {row.getVisibleCells().map(cell => (
-                    <td key={cell.id} className="px-4 py-3">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="text-sm text-muted-foreground">{filtered.length} report{filtered.length !== 1 ? "s" : ""}</div>
 
-        {/* Pagination */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-          <span className="text-sm text-muted-foreground">
-            Page {table.getState().pagination.pageIndex + 1} of {Math.max(1, table.getPageCount())} · {filtered.length} reports
-          </span>
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-3">
+        {table.getRowModel().rows.length === 0 ? (
+          <p className="text-center py-12 text-muted-foreground">No reports found</p>
+        ) : table.getRowModel().rows.map((row) => {
+          const r = row.original;
+          return (
+            <div key={r.id} className="bg-card border border-border rounded-xl p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-medium text-sm">{r.player_name}</p>
+                  <p className="text-xs text-muted-foreground">{r.position} · {r.scout_name}</p>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { setSelected(r); setViewOpen(true); }}><Eye className="w-4 h-4" /></Button>
+                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(r)}><Edit2 className="w-4 h-4" /></Button>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(r.id)} disabled={selectedIds.length > 0}><Trash2 className="w-4 h-4" /></Button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1"><Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" /><span className="font-semibold text-primary text-sm">{r.rating}</span></div>
+                <StatusBadge status={r.status} />
+                <span className="text-xs text-muted-foreground ml-auto">{formatDate(r.created_at)}</span>
+              </div>
+            </div>
+          );
+        })}
+        <div className="flex items-center justify-between pt-2">
+          <span className="text-sm text-muted-foreground">Page {table.getState().pagination.pageIndex + 1} of {Math.max(1, table.getPageCount())} · {filtered.length} reports</span>
           <div className="flex gap-1">
-            <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            {Array.from({ length: table.getPageCount() }, (_, i) => (
-              <Button key={i} size="icon" variant={table.getState().pagination.pageIndex === i ? "default" : "outline"} className="h-8 w-8 text-xs" onClick={() => table.setPageIndex(i)}>
-                {i + 1}
-              </Button>
-            ))}
-            <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
-              <ChevronRight className="w-4 h-4" />
-            </Button>
+            <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}><ChevronLeft className="w-4 h-4" /></Button>
+            <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}><ChevronRight className="w-4 h-4" /></Button>
           </div>
         </div>
       </div>
+
+      {/* Desktop table */}
+      <Card className="hidden md:block">
+        <CardContent className="pt-4">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                {table.getHeaderGroups().map(hg => (
+                  <TableRow key={hg.id}>
+                    {hg.headers.map(header => (
+                      <TableHead key={header.id} className="text-muted-foreground font-medium whitespace-nowrap">
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableHeader>
+              <TableBody>
+                {table.getRowModel().rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length} className="text-center py-10 text-muted-foreground">No reports found</TableCell>
+                  </TableRow>
+                ) : table.getRowModel().rows.map(row => (
+                  <TableRow key={row.id} className="hover:bg-muted/30">
+                    {row.getVisibleCells().map(cell => (
+                      <TableCell key={cell.id} className="py-3 whitespace-nowrap">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
+            <p className="text-sm text-muted-foreground">
+              Page {table.getState().pagination.pageIndex + 1} of {Math.max(1, table.getPageCount())} · {filtered.length} reports
+            </p>
+            <div className="flex gap-1">
+              <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              {Array.from({ length: table.getPageCount() }, (_, i) => (
+                <Button key={i} size="icon" variant={table.getState().pagination.pageIndex === i ? "default" : "outline"} className="h-8 w-8 text-xs" onClick={() => table.setPageIndex(i)}>
+                  {i + 1}
+                </Button>
+              ))}
+              <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* View modal */}
       <Dialog open={viewOpen} onOpenChange={setViewOpen}>
@@ -578,6 +671,19 @@ export default function AdminReportsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedIds.length} report{selectedIds.length !== 1 ? "s" : ""}?</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently remove {selectedIds.length} selected report{selectedIds.length !== 1 ? "s" : ""}. This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete confirmation */}
       <AlertDialog open={deleteId !== null} onOpenChange={open => !open && setDeleteId(null)}>

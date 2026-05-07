@@ -22,33 +22,17 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Search,
-  Filter,
-  Eye,
-  Bookmark,
-  BookmarkX,
-  ChevronLeft,
-  ChevronRight,
-  Flag,
-  MapPin,
-  AlertCircle,
+  Search, Filter, Eye, Bookmark, BookmarkX,
+  ChevronLeft, ChevronRight, Flag, MapPin, AlertCircle, Video, ExternalLink,
 } from "lucide-react";
-import { scoutApi, ScoutPlayerItem, ScoutPlayersResponse } from "@/api/scout";
+import { scoutApi, type ScoutPlayerItem, type ScoutPlayersResponse } from "@/api/scout";
+import type { HighlightItem } from "@/api/player";
+import { clubAdminApi } from "@/api/clubAdmin";
+import { useAuth } from "@/contexts/AuthContext";
+import { ClubLogo } from "@/components/ClubLogo";
 
 const PAGE_SIZE = 6;
-const POSITIONS = [
-  "GK",
-  "CB",
-  "LB",
-  "RB",
-  "CDM",
-  "CM",
-  "AM",
-  "LW",
-  "RW",
-  "CF",
-  "ST",
-];
+const POSITIONS = ["GK", "CB", "LB", "RB", "CDM", "CM", "AM", "LW", "RW", "CF", "ST"];
 
 function formatMarketValue(v: number | null): string {
   if (v == null) return "—";
@@ -59,33 +43,31 @@ function formatMarketValue(v: number | null): string {
 
 export default function PlayersPage() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const isClubAdmin = user?.role === "club_admin";
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [posFilter, setPosFilter] = useState("");
-  const [searchTimer, setSearchTimer] = useState<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
 
   const [viewPlayer, setViewPlayer] = useState<ScoutPlayerItem | null>(null);
   const [saveConfirm, setSaveConfirm] = useState<ScoutPlayerItem | null>(null);
-  const [unsaveConfirm, setUnsaveConfirm] = useState<ScoutPlayerItem | null>(
-    null,
-  );
+  const [unsaveConfirm, setUnsaveConfirm] = useState<ScoutPlayerItem | null>(null);
+  const [highlightsPlayer, setHighlightsPlayer] = useState<ScoutPlayerItem | null>(null);
+  const [highlightsData, setHighlightsData] = useState<HighlightItem[]>([]);
+  const [highlightsLoading, setHighlightsLoading] = useState(false);
+  const [highlightsIndex, setHighlightsIndex] = useState(0);
+
+  const queryParams = { page, limit: PAGE_SIZE, search: debouncedSearch, position: posFilter };
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: [
-      "scout-players",
-      { page, search: debouncedSearch, position: posFilter },
-    ],
+    queryKey: ["players-browse", { page, search: debouncedSearch, position: posFilter, role: user?.role }],
     queryFn: () =>
-      scoutApi.getPlayers({
-        page,
-        limit: PAGE_SIZE,
-        search: debouncedSearch,
-        position: posFilter,
-      }),
+      isClubAdmin
+        ? clubAdminApi.browsePlayers(queryParams)
+        : scoutApi.getPlayers(queryParams),
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   });
@@ -97,15 +79,10 @@ export default function PlayersPage() {
 
   const patchCache = (playerId: string, isSaved: boolean) => {
     qc.setQueriesData<ScoutPlayersResponse>(
-      { queryKey: ["scout-players"] },
+      { queryKey: ["players-browse"] },
       (old) =>
         old
-          ? {
-              ...old,
-              items: old.items.map((p) =>
-                p.id === playerId ? { ...p, is_saved: isSaved } : p,
-              ),
-            }
+          ? { ...old, items: old.items.map((p) => (p.id === playerId ? { ...p, is_saved: isSaved } : p)) }
           : old,
     );
   };
@@ -116,12 +93,10 @@ export default function PlayersPage() {
     onSuccess: () => toast.success("Player saved."),
     onError: (_, id) => {
       patchCache(id, false);
-      toast.error("Failed to save prospect. Please try again.", {
-        duration: 5000,
-      });
+      toast.error("Failed to save prospect. Please try again.", { duration: 5000 });
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["scout-players"] });
+      qc.invalidateQueries({ queryKey: ["players-browse"] });
       qc.invalidateQueries({ queryKey: ["scout-saved-prospects"] });
       qc.invalidateQueries({ queryKey: ["scout-dashboard"] });
     },
@@ -133,12 +108,10 @@ export default function PlayersPage() {
     onSuccess: () => toast.success("Player unsaved."),
     onError: (_, id) => {
       patchCache(id, true);
-      toast.error("Failed to remove prospect. Please try again.", {
-        duration: 5000,
-      });
+      toast.error("Failed to remove prospect. Please try again.", { duration: 5000 });
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["scout-players"] });
+      qc.invalidateQueries({ queryKey: ["players-browse"] });
       qc.invalidateQueries({ queryKey: ["scout-saved-prospects"] });
       qc.invalidateQueries({ queryKey: ["scout-dashboard"] });
     },
@@ -156,7 +129,9 @@ export default function PlayersPage() {
 
   const handleViewProfile = (player: ScoutPlayerItem) => {
     setViewPlayer(player);
-    recordViewMutation.mutate(player.id);
+    if (!isClubAdmin) {
+      recordViewMutation.mutate(player.id);
+    }
   };
 
   const confirmSave = () => {
@@ -173,6 +148,21 @@ export default function PlayersPage() {
     unsaveMutation.mutate(id);
   };
 
+  const openHighlights = async (player: ScoutPlayerItem) => {
+    setHighlightsPlayer(player);
+    setHighlightsIndex(0);
+    setHighlightsData([]);
+    setHighlightsLoading(true);
+    try {
+      const data = await scoutApi.getPlayerHighlights(player.id);
+      setHighlightsData(data);
+    } catch {
+      setHighlightsData([]);
+    } finally {
+      setHighlightsLoading(false);
+    }
+  };
+
   const players = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.pages ?? 1;
@@ -181,9 +171,7 @@ export default function PlayersPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl md:text-3xl font-display font-bold">Players</h1>
-        <p className="text-muted-foreground mt-1">
-          Search and discover football talent
-        </p>
+        <p className="text-muted-foreground mt-1">Search and discover football talent</p>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -210,9 +198,7 @@ export default function PlayersPage() {
           <SelectContent>
             <SelectItem value="all">All Positions</SelectItem>
             {POSITIONS.map((p) => (
-              <SelectItem key={p} value={p}>
-                {p}
-              </SelectItem>
+              <SelectItem key={p} value={p}>{p}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -227,16 +213,12 @@ export default function PlayersPage() {
           <Alert variant="destructive" className="max-w-md">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
-            <AlertDescription>
-              Failed to load players. Please try again.
-            </AlertDescription>
+            <AlertDescription>Failed to load players. Please try again.</AlertDescription>
           </Alert>
         </div>
       ) : (
         <>
-          <p className="text-sm text-muted-foreground">
-            Showing {players.length} of {total} players
-          </p>
+          <p className="text-sm text-muted-foreground">Showing {players.length} of {total} players</p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {players.map((p) => (
@@ -251,48 +233,63 @@ export default function PlayersPage() {
                   <h3 className="font-display font-semibold text-lg leading-tight">
                     {p.first_name} {p.last_name}
                   </h3>
-                  <p className="text-sm text-muted-foreground">
-                    {p.club_name ?? "Free agent"}
-                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    {p.club_name && (
+                      <ClubLogo
+                        name={p.club_name}
+                        logoUrl={p.club_logo_url}
+                        size="sm"
+                      />
+                    )}
+                    <p className="text-sm text-muted-foreground">{p.club_name ?? "Free agent"}</p>
+                  </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {p.age != null ? `Age ${p.age}` : "—"}
                   </p>
                   <div className="mt-3 text-sm">
-                    <span className="text-muted-foreground">
-                      Market value:{" "}
-                    </span>
-                    <span className="font-semibold text-primary">
-                      {formatMarketValue(p.market_value)}
-                    </span>
+                    <span className="text-muted-foreground">Market value: </span>
+                    <span className="font-semibold text-primary">{formatMarketValue(p.market_value)}</span>
                   </div>
-                  <div className="flex gap-2 mt-4">
+                  <div className="flex flex-col gap-2 mt-4">
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={isClubAdmin ? "w-full text-xs" : "flex-1 text-xs"}
+                        onClick={() => handleViewProfile(p)}
+                      >
+                        <Eye className="w-3.5 h-3.5 mr-1.5" /> View Profile
+                      </Button>
+                      {!isClubAdmin && (
+                        p.is_saved ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                            onClick={() => setUnsaveConfirm(p)}
+                          >
+                            <BookmarkX className="w-3.5 h-3.5 mr-1.5" /> Unsave
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 text-xs"
+                            onClick={() => setSaveConfirm(p)}
+                          >
+                            <Bookmark className="w-3.5 h-3.5 mr-1.5" /> Save
+                          </Button>
+                        )
+                      )}
+                    </div>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="flex-1 text-xs"
-                      onClick={() => handleViewProfile(p)}
+                      className="w-full text-xs"
+                      onClick={() => openHighlights(p)}
                     >
-                      <Eye className="w-3.5 h-3.5 mr-1.5" /> View Profile
+                      <Video className="w-3.5 h-3.5 mr-1.5" /> View Highlights
                     </Button>
-                    {p.is_saved ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
-                        onClick={() => setUnsaveConfirm(p)}
-                      >
-                        <BookmarkX className="w-3.5 h-3.5 mr-1.5" /> Unsave
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 text-xs"
-                        onClick={() => setSaveConfirm(p)}
-                      >
-                        <Bookmark className="w-3.5 h-3.5 mr-1.5" /> Save
-                      </Button>
-                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -353,7 +350,6 @@ export default function PlayersPage() {
         </>
       )}
 
-      {/* View Profile modal — no save button */}
       <Dialog open={!!viewPlayer} onOpenChange={() => setViewPlayer(null)}>
         {viewPlayer && (
           <DialogContent className="sm:max-w-md">
@@ -368,65 +364,44 @@ export default function PlayersPage() {
                   {viewPlayer.position}
                 </div>
                 <div>
-                  <p className="font-semibold">
-                    {viewPlayer.club_name ?? "Free agent"}
-                  </p>
+                  <p className="font-semibold">{viewPlayer.club_name ?? "Free agent"}</p>
                   <div className="flex gap-2 mt-1 flex-wrap">
-                    <Badge variant="outline" className="text-xs">
-                      {viewPlayer.position}
-                    </Badge>
+                    <Badge variant="outline" className="text-xs">{viewPlayer.position}</Badge>
                     {viewPlayer.nationality && (
                       <Badge variant="secondary" className="text-xs bg-muted">
-                        <Flag className="w-3 h-3 mr-1" />
-                        {viewPlayer.nationality}
+                        <Flag className="w-3 h-3 mr-1" />{viewPlayer.nationality}
                       </Badge>
                     )}
                     {viewPlayer.age != null && (
-                      <Badge variant="secondary" className="text-xs bg-muted">
-                        Age {viewPlayer.age}
-                      </Badge>
+                      <Badge variant="secondary" className="text-xs bg-muted">Age {viewPlayer.age}</Badge>
                     )}
                   </div>
                 </div>
               </div>
-
               <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  Details
-                </p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Details</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
                     <MapPin className="w-4 h-4 text-muted-foreground" />
                     <div>
-                      <div className="text-sm font-semibold">
-                        {viewPlayer.position}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        Position
-                      </div>
+                      <div className="text-sm font-semibold">{viewPlayer.position}</div>
+                      <div className="text-xs text-muted-foreground">Position</div>
                     </div>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/50">
-                    <div className="text-sm font-semibold">
-                      {formatMarketValue(viewPlayer.market_value)}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      Market Value
-                    </div>
+                    <div className="text-sm font-semibold">{formatMarketValue(viewPlayer.market_value)}</div>
+                    <div className="text-xs text-muted-foreground">Market Value</div>
                   </div>
                 </div>
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setViewPlayer(null)}>
-                Close
-              </Button>
+              <Button variant="outline" onClick={() => setViewPlayer(null)}>Close</Button>
             </DialogFooter>
           </DialogContent>
         )}
       </Dialog>
 
-      {/* Save confirmation modal */}
       <Dialog open={!!saveConfirm} onOpenChange={() => setSaveConfirm(null)}>
         {saveConfirm && (
           <DialogContent className="sm:max-w-sm">
@@ -448,33 +423,20 @@ export default function PlayersPage() {
                   {saveConfirm.position}
                 </div>
                 <div>
-                  <p className="text-sm font-medium">
-                    {saveConfirm.first_name} {saveConfirm.last_name}
-                  </p>
+                  <p className="text-sm font-medium">{saveConfirm.first_name} {saveConfirm.last_name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {saveConfirm.club_name ?? "Free agent"} ·{" "}
-                    {saveConfirm.age != null ? `Age ${saveConfirm.age}` : "—"}
+                    {saveConfirm.club_name ?? "Free agent"} · {saveConfirm.age != null ? `Age ${saveConfirm.age}` : "—"}
                   </p>
                 </div>
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setSaveConfirm(null)}>
-                Cancel
-              </Button>
-              <Button
-                variant="hero"
-                onClick={confirmSave}
-                disabled={saveMutation.isPending}
-              >
+              <Button variant="outline" onClick={() => setSaveConfirm(null)}>Cancel</Button>
+              <Button variant="hero" onClick={confirmSave} disabled={saveMutation.isPending}>
                 {saveMutation.isPending ? (
-                  <span className="flex items-center gap-2">
-                    <Spinner size="sm" className="text-white" /> Saving…
-                  </span>
+                  <span className="flex items-center gap-2"><Spinner size="sm" className="text-white" /> Saving…</span>
                 ) : (
-                  <>
-                    <Bookmark className="w-4 h-4 mr-2" /> Save Prospect
-                  </>
+                  <><Bookmark className="w-4 h-4 mr-2" /> Save Prospect</>
                 )}
               </Button>
             </DialogFooter>
@@ -482,17 +444,12 @@ export default function PlayersPage() {
         )}
       </Dialog>
 
-      {/* Unsave confirmation modal */}
-      <Dialog
-        open={!!unsaveConfirm}
-        onOpenChange={() => setUnsaveConfirm(null)}
-      >
+      <Dialog open={!!unsaveConfirm} onOpenChange={() => setUnsaveConfirm(null)}>
         {unsaveConfirm && (
           <DialogContent className="sm:max-w-sm">
             <DialogHeader>
               <DialogTitle className="font-display flex items-center gap-2">
-                <BookmarkX className="w-5 h-5 text-destructive" /> Remove
-                Prospect
+                <BookmarkX className="w-5 h-5 text-destructive" /> Remove Prospect
               </DialogTitle>
             </DialogHeader>
             <div className="py-2 space-y-3">
@@ -508,36 +465,125 @@ export default function PlayersPage() {
                   {unsaveConfirm.position}
                 </div>
                 <div>
-                  <p className="text-sm font-medium">
-                    {unsaveConfirm.first_name} {unsaveConfirm.last_name}
-                  </p>
+                  <p className="text-sm font-medium">{unsaveConfirm.first_name} {unsaveConfirm.last_name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {unsaveConfirm.club_name ?? "Free agent"} ·{" "}
-                    {unsaveConfirm.age != null
-                      ? `Age ${unsaveConfirm.age}`
-                      : "—"}
+                    {unsaveConfirm.club_name ?? "Free agent"} · {unsaveConfirm.age != null ? `Age ${unsaveConfirm.age}` : "—"}
                   </p>
                 </div>
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setUnsaveConfirm(null)}>
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={confirmUnsave}
-                disabled={unsaveMutation.isPending}
-              >
+              <Button variant="outline" onClick={() => setUnsaveConfirm(null)}>Cancel</Button>
+              <Button variant="destructive" onClick={confirmUnsave} disabled={unsaveMutation.isPending}>
                 {unsaveMutation.isPending ? (
-                  <span className="flex items-center gap-2">
-                    <Spinner size="sm" /> Removing…
-                  </span>
+                  <span className="flex items-center gap-2"><Spinner size="sm" /> Removing…</span>
                 ) : (
-                  <>
-                    <BookmarkX className="w-4 h-4 mr-2" /> Remove
-                  </>
+                  <><BookmarkX className="w-4 h-4 mr-2" /> Remove</>
                 )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
+
+      <Dialog
+        open={!!highlightsPlayer}
+        onOpenChange={() => { setHighlightsPlayer(null); setHighlightsData([]); setHighlightsIndex(0); }}
+      >
+        {highlightsPlayer && (
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="font-display flex items-center gap-2">
+                <Video className="w-5 h-5 text-primary" />
+                {highlightsPlayer.first_name} {highlightsPlayer.last_name} — Highlights
+              </DialogTitle>
+            </DialogHeader>
+
+            {highlightsLoading ? (
+              <div className="flex items-center justify-center h-48">
+                <Spinner size="lg" label="Loading highlights…" />
+              </div>
+            ) : highlightsData.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-14 text-center gap-3">
+                <Video className="w-10 h-10 text-muted-foreground/40" />
+                <p className="text-sm text-muted-foreground">This player has not added any highlights yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-4 py-2">
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm truncate">
+                      {highlightsData[highlightsIndex].title ?? "Untitled highlight"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {highlightsIndex + 1} of {highlightsData.length}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <a
+                      href={highlightsData[highlightsIndex].url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </Button>
+                    </a>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setHighlightsIndex((i) => Math.max(0, i - 1))}
+                      disabled={highlightsIndex === 0}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setHighlightsIndex((i) => Math.min(highlightsData.length - 1, i + 1))}
+                      disabled={highlightsIndex === highlightsData.length - 1}
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
+                  <iframe
+                    key={highlightsData[highlightsIndex].id}
+                    src={highlightsData[highlightsIndex].embed_url}
+                    title={highlightsData[highlightsIndex].title ?? "Player highlight"}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    loading="lazy"
+                    className="absolute inset-0 w-full h-full rounded-lg border-0"
+                  />
+                </div>
+                {highlightsData.length > 1 && (
+                  <div className="flex justify-center gap-1.5">
+                    {highlightsData.map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setHighlightsIndex(i)}
+                        className={`w-2 h-2 rounded-full transition-colors ${
+                          i === highlightsIndex ? "bg-primary" : "bg-muted-foreground/30"
+                        }`}
+                        aria-label={`Go to highlight ${i + 1}`}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => { setHighlightsPlayer(null); setHighlightsData([]); setHighlightsIndex(0); }}
+              >
+                Close
               </Button>
             </DialogFooter>
           </DialogContent>
