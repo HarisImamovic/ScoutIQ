@@ -109,6 +109,7 @@ Backend has no test framework configured.
 .claude and .env are not to be committed.
 Best practices for Python and React are to be used, to ensure security and stability of the app.
 No comments within the code.
+If prompted to write PlantUML code for diagrams, do not use autonumber, rather type manually sequential numbers
 
 ## UI Conventions
 

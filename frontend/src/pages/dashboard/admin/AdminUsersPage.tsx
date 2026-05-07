@@ -222,7 +222,7 @@ export default function AdminUsersPage() {
     setRowSelection({});
     try {
       await client.post("/admin/users/bulk-delete", { ids });
-      toast.success(`${ids.length} user${ids.length !== 1 ? "s" : ""} deleted.`);
+      toast.success(`${ids.length} user${ids.length !== 1 ? "s" : ""} deleted successfully.`);
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       toast.error(typeof detail === "string" ? detail : "Failed to delete selected users.");
@@ -306,7 +306,7 @@ export default function AdminUsersPage() {
       });
       setUsers((p) => [data, ...p]);
       setModalOpen(false);
-      toast.success("User created.");
+      toast.success("User created successfully.");
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       if (err.response?.status === 409) toast.error("A user with this email already exists.");
@@ -324,7 +324,7 @@ export default function AdminUsersPage() {
     setUsers(prev => prev.filter(u => u.id !== id));
     try {
       await client.delete(`/admin/users/${id}`);
-      toast.success("User deleted.");
+      toast.success("User deleted successfully.");
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       toast.error(typeof detail === "string" ? detail : "Failed to delete user.");

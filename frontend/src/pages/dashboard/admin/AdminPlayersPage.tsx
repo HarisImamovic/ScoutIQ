@@ -380,7 +380,7 @@ export default function AdminPlayersPage() {
     setRowSelection({});
     try {
       await client.post("/admin/players/bulk-delete", { ids });
-      toast.success(`${ids.length} player${ids.length !== 1 ? "s" : ""} deleted.`);
+      toast.success(`${ids.length} player${ids.length !== 1 ? "s" : ""} deleted successfully.`);
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       toast.error(typeof detail === "string" ? detail : "Failed to delete selected players.");
@@ -431,7 +431,7 @@ export default function AdminPlayersPage() {
         });
         setPlayers((prev) => [data, ...prev]);
         setModalOpen(false);
-        toast.success("Player created.");
+        toast.success("Player created successfully.");
       }
     } catch (err: any) {
       const detail = err.response?.data?.detail;
@@ -454,7 +454,7 @@ export default function AdminPlayersPage() {
     setPlayers((prev) => prev.filter((pl) => pl.id !== id));
     try {
       await client.delete(`/admin/players/${id}`);
-      toast.success("Player deleted.");
+      toast.success("Player deleted successfully.");
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       toast.error(

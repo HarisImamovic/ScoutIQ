@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PlayerClubInfo(BaseModel):
@@ -11,6 +11,7 @@ class PlayerClubInfo(BaseModel):
     country: str
     league_name: Optional[str]
     primary_color: Optional[str]
+    logo_url: Optional[str] = None
 
 
 class PlayerStats(BaseModel):
@@ -33,6 +34,19 @@ class ScoutInterestItem(BaseModel):
     scout_name: str
     activity: str
     timestamp: datetime
+
+
+class HighlightCreate(BaseModel):
+    url: str = Field(min_length=1, max_length=2048)
+    title: Optional[str] = Field(None, max_length=200)
+
+
+class HighlightResponse(BaseModel):
+    id: str
+    title: Optional[str]
+    url: str
+    embed_url: str
+    created_at: datetime
 
 
 class PlayerDashboardResponse(BaseModel):

@@ -232,7 +232,7 @@ export default function AdminReportsPage() {
     setRowSelection({});
     try {
       await client.post("/admin/reports/bulk-delete", { ids });
-      toast.success(`${ids.length} report${ids.length !== 1 ? "s" : ""} deleted.`);
+      toast.success(`${ids.length} report${ids.length !== 1 ? "s" : ""} deleted successfully.`);
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       toast.error(typeof detail === "string" ? detail : "Failed to delete selected reports.");
@@ -281,7 +281,7 @@ export default function AdminReportsPage() {
         });
         setReports(prev => [data, ...prev]);
         setEditOpen(false);
-        toast.success("Report created.");
+        toast.success("Report created successfully.");
       }
     } catch (err: any) {
       const detail = err.response?.data?.detail;
@@ -297,7 +297,7 @@ export default function AdminReportsPage() {
     setReports(prev => prev.filter(r => r.id !== id));
     try {
       await client.delete(`/admin/reports/${id}`);
-      toast.success("Report deleted.");
+      toast.success("Report deleted successfully.");
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       toast.error(typeof detail === "string" ? detail : "Failed to delete report.");

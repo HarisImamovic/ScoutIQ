@@ -65,7 +65,7 @@ export default function ReportsPage() {
       qc.invalidateQueries({ queryKey: ["scout-reports"] });
       qc.invalidateQueries({ queryKey: ["scout-dashboard"] });
       setModalMode(null);
-      toast.success("Report created.");
+      toast.success("Report created successfully.");
     },
   });
 
@@ -91,7 +91,7 @@ export default function ReportsPage() {
       qc.invalidateQueries({ queryKey: ["scout-reports"] });
       qc.invalidateQueries({ queryKey: ["scout-dashboard"] });
       setDeleteId(null);
-      toast.success("Report deleted.");
+      toast.success("Report deleted successfully.");
     },
     onError: () => {
       toast.error("Failed to delete report.");

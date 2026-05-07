@@ -13,6 +13,7 @@ class ClubInfo(BaseModel):
     stadium_name: Optional[str]
     stadium_capacity: Optional[int]
     primary_color: Optional[str]
+    logo_url: Optional[str] = None
 
 
 class ClubDashboardStats(BaseModel):
@@ -50,7 +51,7 @@ class ClubPlayerItem(BaseModel):
     id: str
     first_name: str
     last_name: str
-    position: str
+    position: Optional[str]
     age: Optional[int]
     nationality: Optional[str]
     market_value: Optional[int]

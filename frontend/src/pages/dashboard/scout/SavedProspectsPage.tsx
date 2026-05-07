@@ -28,6 +28,7 @@ import {
   BookmarkX, Search, Filter, AlertCircle,
 } from "lucide-react";
 import { scoutApi, ScoutSavedProspectItem } from "@/api/scout";
+import { ClubLogo } from "@/components/ClubLogo";
 
 const POSITIONS = ["All", "GK", "CB", "LB", "RB", "CDM", "CM", "AM", "LW", "RW", "CF", "ST"];
 
@@ -125,8 +126,13 @@ export default function SavedProspectsPage() {
       {
         accessorKey: "club_name",
         header: "Club",
-        cell: ({ getValue }) => (
-          <span className="text-sm">{(getValue() as string | null) ?? "Free agent"}</span>
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2">
+            {row.original.club_name && (
+              <ClubLogo name={row.original.club_name} logoUrl={row.original.club_logo_url} size="sm" />
+            )}
+            <span className="text-sm">{row.original.club_name ?? "Free agent"}</span>
+          </div>
         ),
       },
       {
@@ -260,6 +266,9 @@ export default function SavedProspectsPage() {
                     </Button>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
+                    {p.club_name && (
+                      <ClubLogo name={p.club_name} logoUrl={p.club_logo_url} size="sm" className="w-5 h-5" />
+                    )}
                     <span className="text-xs text-muted-foreground">{p.club_name ?? "Free agent"}</span>
                     <span className="text-xs font-semibold text-primary ml-auto">{formatMarketValue(p.market_value)}</span>
                   </div>

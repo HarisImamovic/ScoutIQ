@@ -11,6 +11,7 @@ import {
 import { Link } from "react-router-dom";
 import { clubAdminApi, isNoClubError } from "@/api/clubAdmin";
 import { NoClubState } from "@/components/NoClubState";
+import { ClubLogo } from "@/components/ClubLogo";
 
 const STATUS_COLORS: Record<string, string> = {
   submitted: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
@@ -55,8 +56,6 @@ export default function ClubDashboard() {
   if (!data) return null;
 
   const { club, stats, scouts, recent_reports } = data;
-  const shortName = club.short_name ?? club.name.slice(0, 3).toUpperCase();
-  const color = club.primary_color ?? "#6366f1";
 
   const statCards = [
     { label: "Squad Players", value: stats.squad_count, icon: Users, color: "text-primary" },
@@ -69,12 +68,14 @@ export default function ClubDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center text-white font-display font-bold text-xl shadow-lg flex-shrink-0"
-          style={{ backgroundColor: color }}
-        >
-          {shortName}
-        </div>
+        <ClubLogo
+          name={club.name}
+          shortName={club.short_name}
+          logoUrl={club.logo_url}
+          primaryColor={club.primary_color}
+          size="lg"
+          className="shadow-lg"
+        />
         <div>
           <h1 className="text-2xl md:text-3xl font-display font-bold">{club.name}</h1>
           <p className="text-muted-foreground mt-0.5">

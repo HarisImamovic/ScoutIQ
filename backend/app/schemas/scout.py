@@ -14,9 +14,10 @@ class RecentPlayerItem(BaseModel):
     id: str
     first_name: str
     last_name: str
-    position: str
+    position: Optional[str]
     nationality: Optional[str]
     club_name: Optional[str]
+    club_logo_url: Optional[str] = None
     age: Optional[int]
     market_value: Optional[int]
     last_viewed: datetime
@@ -26,9 +27,10 @@ class SavedProspectSummary(BaseModel):
     player_id: str
     first_name: str
     last_name: str
-    position: str
+    position: Optional[str]
     nationality: Optional[str]
     club_name: Optional[str]
+    club_logo_url: Optional[str] = None
     age: Optional[int]
     saved_at: datetime
 
@@ -43,11 +45,12 @@ class ScoutPlayerItem(BaseModel):
     id: str
     first_name: str
     last_name: str
-    position: str
+    position: Optional[str]
     age: Optional[int]
     nationality: Optional[str]
     club_id: Optional[str]
     club_name: Optional[str]
+    club_logo_url: Optional[str] = None
     market_value: Optional[int]
     status: str
     is_saved: bool
@@ -65,10 +68,11 @@ class ScoutSavedProspectItem(BaseModel):
     player_id: str
     first_name: str
     last_name: str
-    position: str
+    position: Optional[str]
     age: Optional[int]
     nationality: Optional[str]
     club_name: Optional[str]
+    club_logo_url: Optional[str] = None
     market_value: Optional[int]
     saved_at: datetime
 
@@ -124,4 +128,4 @@ class PlayerDropdownItem(BaseModel):
     id: str
     first_name: str
     last_name: str
-    position: str
+    position: Optional[str]

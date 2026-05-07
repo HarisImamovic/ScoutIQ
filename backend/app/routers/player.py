@@ -58,6 +58,7 @@ def get_player_dashboard(
             country=c.country,
             league_name=c.league.name if c.league else None,
             primary_color=c.primary_color,
+            logo_url=c.logo_url,
         )
 
     age = None

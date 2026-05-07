@@ -20,6 +20,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Building2, AlertCircle, FileUp, CheckCircle, Clock, XCircle } from "lucide-react";
 import client from "@/api/client";
 import { BulkImportModal } from "@/components/BulkImportModal";
+import { ClubLogo } from "@/components/ClubLogo";
 
 interface Club {
   id: string;
@@ -27,6 +28,7 @@ interface Club {
   country: string;
   league: string;
   league_id: string | null;
+  logo_url: string | null;
   scout_count: number;
   player_count: number;
   status: string;
@@ -75,6 +77,7 @@ export default function AdminClubsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Club | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -126,9 +129,12 @@ export default function AdminClubsPage() {
         </button>
       ),
       cell: ({ row }) => (
-        <div>
-          <div className="font-medium">{row.original.name}</div>
-          <div className="text-xs text-muted-foreground">{row.original.country}</div>
+        <div className="flex items-center gap-2">
+          <ClubLogo name={row.original.name} logoUrl={row.original.logo_url} size="sm" />
+          <div>
+            <div className="font-medium">{row.original.name}</div>
+            <div className="text-xs text-muted-foreground">{row.original.country}</div>
+          </div>
         </div>
       ),
     },
@@ -191,7 +197,7 @@ export default function AdminClubsPage() {
     setRowSelection({});
     try {
       await client.post("/admin/clubs/bulk-delete", { ids });
-      toast.success(`${ids.length} club${ids.length !== 1 ? "s" : ""} deleted.`);
+      toast.success(`${ids.length} club${ids.length !== 1 ? "s" : ""} deleted successfully.`);
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       toast.error(typeof detail === "string" ? detail : "Failed to delete selected clubs.");
@@ -212,10 +218,20 @@ export default function AdminClubsPage() {
     initialState: { pagination: { pageSize: 10 } },
   });
 
-  const openCreate = () => { setEditTarget(null); setForm(emptyForm); setModalOpen(true); };
+  const uploadLogo = async (clubId: string, file: File): Promise<Club> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const { data } = await client.post<Club>(`/admin/clubs/${clubId}/logo`, fd, {
+      headers: { "Content-Type": undefined },
+    });
+    return data;
+  };
+
+  const openCreate = () => { setEditTarget(null); setForm(emptyForm); setLogoFile(null); setModalOpen(true); };
   const openEdit = (c: Club) => {
     setEditTarget(c);
     setForm({ name: c.name, country: c.country, league_id: c.league_id ?? "none", status: c.status });
+    setLogoFile(null);
     setModalOpen(true);
   };
 
@@ -227,13 +243,22 @@ export default function AdminClubsPage() {
     if (editTarget) {
       try {
         setSaving(true);
-        const { data } = await client.put<Club>(`/admin/clubs/${editTarget.id}`, {
+        let updated = (await client.put<Club>(`/admin/clubs/${editTarget.id}`, {
           name: form.name,
           country: form.country,
           league_id: form.league_id === "none" ? null : form.league_id || null,
           status: form.status,
-        });
-        setClubs(prev => prev.map(c => c.id === editTarget.id ? data : c));
+        })).data;
+        if (logoFile) {
+          try {
+            updated = await uploadLogo(editTarget.id, logoFile);
+          } catch (logoErr: any) {
+            const detail = logoErr.response?.data?.detail;
+            const msg = typeof detail === "string" ? detail : "Logo upload failed. Please try a PNG, JPEG, or WebP under 2 MB.";
+            toast.error(msg);
+          }
+        }
+        setClubs(prev => prev.map(c => c.id === editTarget.id ? updated : c));
         setModalOpen(false);
         toast.success("Club updated successfully.");
       } catch (err: any) {
@@ -246,10 +271,19 @@ export default function AdminClubsPage() {
     }
     try {
       setSaving(true);
-      const { data } = await client.post<Club>("/admin/clubs", { ...form, league_id: form.league_id === "none" ? null : form.league_id || null });
-      setClubs((p) => [data, ...p]);
+      let created = (await client.post<Club>("/admin/clubs", { ...form, league_id: form.league_id === "none" ? null : form.league_id || null })).data;
+      if (logoFile) {
+        try {
+          created = await uploadLogo(created.id, logoFile);
+        } catch (logoErr: any) {
+          const detail = logoErr.response?.data?.detail;
+          const msg = typeof detail === "string" ? detail : "Logo upload failed. Please try a PNG, JPEG, or WebP under 2 MB.";
+          toast.error(msg);
+        }
+      }
+      setClubs((p) => [created, ...p]);
       setModalOpen(false);
-      toast.success("Club created.");
+      toast.success("Club created successfully.");
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       toast.error(typeof detail === "string" ? detail : "Failed to create club.");
@@ -265,7 +299,7 @@ export default function AdminClubsPage() {
     setClubs(prev => prev.filter(c => c.id !== id));
     try {
       await client.delete(`/admin/clubs/${id}`);
-      toast.success("Club deleted.");
+      toast.success("Club deleted successfully.");
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       toast.error(typeof detail === "string" ? detail : "Failed to delete club.");
@@ -369,9 +403,12 @@ export default function AdminClubsPage() {
           return (
             <div key={c.id} className="bg-card border border-border rounded-xl p-4 space-y-3">
               <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-medium text-sm">{c.name}</p>
-                  <p className="text-xs text-muted-foreground">{c.country}{c.league ? ` · ${c.league}` : ""}</p>
+                <div className="flex items-center gap-2">
+                  <ClubLogo name={c.name} logoUrl={c.logo_url} size="sm" />
+                  <div>
+                    <p className="font-medium text-sm">{c.name}</p>
+                    <p className="text-xs text-muted-foreground">{c.country}{c.league ? ` · ${c.league}` : ""}</p>
+                  </div>
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}><Edit2 className="w-4 h-4" /></Button>
@@ -485,6 +522,27 @@ export default function AdminClubsPage() {
                   <SelectItem value="suspended">Suspended</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Club Logo</Label>
+              <div className="flex items-center gap-3">
+                {(logoFile || editTarget?.logo_url) && (
+                  <ClubLogo
+                    name={form.name || "Club"}
+                    logoUrl={logoFile ? URL.createObjectURL(logoFile) : editTarget?.logo_url}
+                    size="md"
+                  />
+                )}
+                <div className="flex-1">
+                  <Input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="bg-muted/50 cursor-pointer"
+                    onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">PNG, JPEG, or WebP · Max 2 MB</p>
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>

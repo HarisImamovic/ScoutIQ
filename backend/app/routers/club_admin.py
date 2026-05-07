@@ -161,6 +161,7 @@ def get_dashboard(
             stadium_name=club.stadium_name,
             stadium_capacity=club.stadium_capacity,
             primary_color=club.primary_color,
+            logo_url=club.logo_url,
         ),
         stats=ClubDashboardStats(
             squad_count=squad_count,
@@ -227,7 +228,7 @@ def browse_players(
     position: str = Query("", max_length=20),
 ):
     query = (
-        db.query(Player, Club.name.label("club_name"))
+        db.query(Player, Club.name.label("club_name"), Club.logo_url.label("club_logo_url"))
         .outerjoin(Club, Player.club_id == Club.id)
         .filter(Player.status == "active")
     )
@@ -257,11 +258,12 @@ def browse_players(
             nationality=p.nationality,
             club_id=str(p.club_id) if p.club_id else None,
             club_name=club_name,
+            club_logo_url=club_logo_url,
             market_value=p.market_value,
             status=p.status,
             is_saved=False,
         )
-        for p, club_name in rows
+        for p, club_name, club_logo_url in rows
     ]
 
     return ScoutPlayersResponse(

@@ -10,10 +10,12 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import { Search, Filter, Eye, Flag, AlertCircle } from "lucide-react";
+import { Search, Filter, Eye, Flag, AlertCircle, Video, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
 import { clubAdminApi, isNoClubError, type ClubPlayerItem } from "@/api/clubAdmin";
+import { scoutApi } from "@/api/scout";
+import type { HighlightItem } from "@/api/player";
 import { NoClubState } from "@/components/NoClubState";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -39,6 +41,25 @@ export default function MyPlayersPage() {
   const [posFilter, setPosFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [viewPlayer, setViewPlayer] = useState<ClubPlayerItem | null>(null);
+  const [highlightsPlayer, setHighlightsPlayer] = useState<ClubPlayerItem | null>(null);
+  const [highlightsData, setHighlightsData] = useState<HighlightItem[]>([]);
+  const [highlightsLoading, setHighlightsLoading] = useState(false);
+  const [highlightsIndex, setHighlightsIndex] = useState(0);
+
+  const openHighlights = async (player: ClubPlayerItem) => {
+    setHighlightsPlayer(player);
+    setHighlightsIndex(0);
+    setHighlightsData([]);
+    setHighlightsLoading(true);
+    try {
+      const data = await scoutApi.getPlayerHighlights(player.id);
+      setHighlightsData(data);
+    } catch {
+      setHighlightsData([]);
+    } finally {
+      setHighlightsLoading(false);
+    }
+  };
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["club-squad"],
@@ -139,14 +160,24 @@ export default function MyPlayersPage() {
                     <span className="text-muted-foreground">Market value: </span>
                     <span className="font-semibold text-primary">{formatMarketValue(p.market_value)}</span>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full mt-4 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => setViewPlayer(p)}
-                  >
-                    <Eye className="w-4 h-4 mr-2" /> View Profile
-                  </Button>
+                  <div className="flex flex-col gap-2 mt-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => setViewPlayer(p)}
+                    >
+                      <Eye className="w-4 h-4 mr-2" /> View Profile
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs"
+                      onClick={() => openHighlights(p)}
+                    >
+                      <Video className="w-3.5 h-3.5 mr-1.5" /> View Highlights
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -208,6 +239,110 @@ export default function MyPlayersPage() {
                 </div>
               </div>
             </div>
+          </DialogContent>
+        )}
+      </Dialog>
+
+      <Dialog
+        open={!!highlightsPlayer}
+        onOpenChange={() => { setHighlightsPlayer(null); setHighlightsData([]); setHighlightsIndex(0); }}
+      >
+        {highlightsPlayer && (
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="font-display flex items-center gap-2">
+                <Video className="w-5 h-5 text-primary" />
+                {highlightsPlayer.first_name} {highlightsPlayer.last_name} — Highlights
+              </DialogTitle>
+            </DialogHeader>
+
+            {highlightsLoading ? (
+              <div className="flex items-center justify-center h-48">
+                <Spinner size="lg" label="Loading highlights…" />
+              </div>
+            ) : highlightsData.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-14 text-center gap-3">
+                <Video className="w-10 h-10 text-muted-foreground/40" />
+                <p className="text-sm text-muted-foreground">This player has not added any highlights yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-4 py-2">
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm truncate">
+                      {highlightsData[highlightsIndex].title ?? "Untitled highlight"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {highlightsIndex + 1} of {highlightsData.length}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <a
+                      href={highlightsData[highlightsIndex].url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </Button>
+                    </a>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setHighlightsIndex((i) => Math.max(0, i - 1))}
+                      disabled={highlightsIndex === 0}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setHighlightsIndex((i) => Math.min(highlightsData.length - 1, i + 1))}
+                      disabled={highlightsIndex === highlightsData.length - 1}
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
+                  <iframe
+                    key={highlightsData[highlightsIndex].id}
+                    src={highlightsData[highlightsIndex].embed_url}
+                    title={highlightsData[highlightsIndex].title ?? "Player highlight"}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    loading="lazy"
+                    className="absolute inset-0 w-full h-full rounded-lg border-0"
+                  />
+                </div>
+                {highlightsData.length > 1 && (
+                  <div className="flex justify-center gap-1.5">
+                    {highlightsData.map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setHighlightsIndex(i)}
+                        className={`w-2 h-2 rounded-full transition-colors ${
+                          i === highlightsIndex ? "bg-primary" : "bg-muted-foreground/30"
+                        }`}
+                        aria-label={`Go to highlight ${i + 1}`}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => { setHighlightsPlayer(null); setHighlightsData([]); setHighlightsIndex(0); }}
+              >
+                Close
+              </Button>
+            </DialogFooter>
           </DialogContent>
         )}
       </Dialog>

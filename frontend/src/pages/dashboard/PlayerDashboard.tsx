@@ -11,6 +11,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { playerApi, type PlayerStats } from "@/api/player";
+import { ClubLogo } from "@/components/ClubLogo";
 
 const GK_POS = new Set(["GK"]);
 const DEF_POS = new Set(["CB", "LB", "RB", "LWB", "RWB", "SW", "CDM"]);
@@ -142,16 +143,18 @@ export default function PlayerDashboard() {
         <CardContent className="pt-6">
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
             <div className="flex-shrink-0">
-              {club?.primary_color ? (
-                <div
-                  className="w-20 h-20 rounded-2xl flex items-center justify-center text-white font-display font-bold text-xl shadow-lg"
-                  style={{ backgroundColor: club.primary_color }}
-                >
-                  {club.short_name ?? club.name.slice(0, 3).toUpperCase()}
-                </div>
+              {club ? (
+                <ClubLogo
+                  name={club.name}
+                  shortName={club.short_name}
+                  logoUrl={club.logo_url}
+                  primaryColor={club.primary_color}
+                  size="xl"
+                  className="shadow-lg"
+                />
               ) : (
-                <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center font-display font-bold text-primary text-xl">
-                  {club?.name.slice(0, 3).toUpperCase() ?? "—"}
+                <div className="w-20 h-20 rounded-2xl bg-muted flex items-center justify-center font-display font-bold text-muted-foreground text-xl">
+                  —
                 </div>
               )}
             </div>

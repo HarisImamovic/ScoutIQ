@@ -59,6 +59,7 @@ class AdminClubItem(BaseModel):
     country: str
     league: str
     league_id: Optional[str]
+    logo_url: Optional[str] = None
     scout_count: int
     player_count: int
     status: str

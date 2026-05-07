@@ -204,6 +204,7 @@ def list_clubs(
             country=club.country,
             league=league_name or "—",
             league_id=str(club.league_id) if club.league_id else None,
+            logo_url=club.logo_url,
             scout_count=scout_counts.get(club.id, 0),
             player_count=player_counts.get(club.id, 0),
             status=club.status,
@@ -249,6 +250,7 @@ def create_club(
         country=new_club.country,
         league=league.name if league else "—",
         league_id=str(league_uuid) if league_uuid else None,
+        logo_url=None,
         scout_count=0,
         player_count=0,
         status=new_club.status,
@@ -906,6 +908,7 @@ def update_club(
         country=club.country,
         league=league.name if league else "—",
         league_id=str(league_uuid) if league_uuid else None,
+        logo_url=club.logo_url,
         scout_count=scout_count,
         player_count=player_count,
         status=club.status,
@@ -930,6 +933,105 @@ def delete_club(
 
     club.deleted_at = datetime.now(timezone.utc)
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Clubs – Logo upload
+# ---------------------------------------------------------------------------
+
+_LOGO_MAX_BYTES = 2 * 1024 * 1024
+_LOGO_SIGNATURES: dict[bytes, str] = {
+    b"\x89PNG\r\n\x1a\n": "png",
+    b"\xff\xd8\xff": "jpg",
+}
+_WEBP_RIFF = b"RIFF"
+_WEBP_MARKER = b"WEBP"
+
+
+def _detect_image_ext(data: bytes) -> str | None:
+    for sig, ext in _LOGO_SIGNATURES.items():
+        if data[:len(sig)] == sig:
+            return ext
+    if data[:4] == _WEBP_RIFF and len(data) >= 12 and data[8:12] == _WEBP_MARKER:
+        return "webp"
+    return None
+
+
+@router.post("/clubs/{club_id}/logo", response_model=AdminClubItem)
+async def upload_club_logo(
+    club_id: str,
+    file: UploadFile = File(...),
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    import os
+
+    try:
+        cid = _uuid.UUID(club_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid club_id format.")
+
+    club = db.query(Club).filter(Club.id == cid, Club.deleted_at.is_(None)).first()
+    if not club:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
+
+    raw = await file.read()
+    if len(raw) > _LOGO_MAX_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Logo must not exceed 2 MB.")
+
+    ext = _detect_image_ext(raw)
+    if not ext:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only PNG, JPEG, and WebP images are accepted.",
+        )
+
+    logos_dir = os.path.join(os.path.dirname(__file__), "..", "..", "static", "logos")
+    os.makedirs(logos_dir, exist_ok=True)
+
+    filename = f"{club_id}.{ext}"
+    for old_ext in ("png", "jpg", "webp"):
+        old_path = os.path.join(logos_dir, f"{club_id}.{old_ext}")
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    with open(os.path.join(logos_dir, filename), "wb") as f:
+        f.write(raw)
+
+    club.logo_url = f"/static/logos/{filename}"
+    club.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(club)
+
+    league_name = None
+    if club.league_id:
+        league = db.query(League).filter(League.id == club.league_id).first()
+        if league:
+            league_name = league.name
+
+    scout_count = (
+        db.query(func.count(User.id))
+        .filter(User.club_id == club.id, User.role == "scout", User.deleted_at.is_(None))
+        .scalar()
+    ) or 0
+    player_count = (
+        db.query(func.count(Player.id))
+        .filter(Player.club_id == club.id)
+        .scalar()
+    ) or 0
+
+    return AdminClubItem(
+        id=str(club.id),
+        name=club.name,
+        country=club.country,
+        league=league_name or "—",
+        league_id=str(club.league_id) if club.league_id else None,
+        logo_url=club.logo_url,
+        scout_count=scout_count,
+        player_count=player_count,
+        status=club.status,
+        created_at=club.created_at,
+    )
 
 
 # ---------------------------------------------------------------------------

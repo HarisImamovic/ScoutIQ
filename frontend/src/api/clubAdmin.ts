@@ -20,6 +20,7 @@ export interface ClubInfo {
   stadium_name: string | null;
   stadium_capacity: number | null;
   primary_color: string | null;
+  logo_url: string | null;
 }
 
 export interface ClubDashboardStats {
@@ -57,7 +58,7 @@ export interface ClubPlayerItem {
   id: string;
   first_name: string;
   last_name: string;
-  position: string;
+  position: string | null;
   age: number | null;
   nationality: string | null;
   market_value: number | null;

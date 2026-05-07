@@ -55,3 +55,8 @@ class Player(Base):
         back_populates="player",
         cascade="all, delete-orphan",
     )
+    highlights = relationship(
+        "PlayerHighlight",
+        back_populates="player",
+        cascade="all, delete-orphan",
+    )

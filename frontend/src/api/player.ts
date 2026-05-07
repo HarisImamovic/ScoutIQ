@@ -7,6 +7,7 @@ export interface PlayerClubInfo {
   country: string;
   league_name: string | null;
   primary_color: string | null;
+  logo_url: string | null;
 }
 
 export interface PlayerStats {
@@ -48,7 +49,29 @@ export interface PlayerDashboardData {
   scouting_interest: ScoutInterestItem[];
 }
 
+export interface HighlightItem {
+  id: string;
+  title: string | null;
+  url: string;
+  embed_url: string;
+  created_at: string;
+}
+
+export interface CreateHighlightPayload {
+  url: string;
+  title?: string;
+}
+
 export const playerApi = {
   getDashboard: (): Promise<PlayerDashboardData> =>
     client.get("/player/dashboard").then((r) => r.data),
+
+  getHighlights: (): Promise<HighlightItem[]> =>
+    client.get("/player/highlights").then((r) => r.data),
+
+  addHighlight: (data: CreateHighlightPayload): Promise<HighlightItem> =>
+    client.post("/player/highlights", data).then((r) => r.data),
+
+  deleteHighlight: (id: string): Promise<void> =>
+    client.delete(`/player/highlights/${id}`).then(() => undefined),
 };

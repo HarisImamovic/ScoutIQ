@@ -67,7 +67,7 @@ export default function SalariesPage() {
       qc.setQueryData<ContractItem[]>(["club-contracts"], (old) =>
         old ? [created, ...old] : [created],
       );
-      toast.success("Player added.");
+      toast.success("Player added successfully.");
       setModalOpen(false);
     },
     onError: () => toast.error("Failed to add player. Please try again.", { duration: 5000 }),
@@ -80,7 +80,7 @@ export default function SalariesPage() {
       qc.setQueryData<ContractItem[]>(["club-contracts"], (old) =>
         old ? old.map((c) => (c.id === updated.id ? updated : c)) : old,
       );
-      toast.success("Contract updated.");
+      toast.success("Contract updated successfully.");
       setModalOpen(false);
     },
     onError: () => toast.error("Failed to update contract. Please try again.", { duration: 5000 }),
@@ -92,7 +92,7 @@ export default function SalariesPage() {
       qc.setQueryData<ContractItem[]>(["club-contracts"], (old) =>
         old ? old.filter((c) => c.id !== id) : old,
       );
-      toast.success("Player removed.");
+      toast.success("Player removed successfully.");
       setDeleteId(null);
     },
     onError: () => toast.error("Failed to remove player. Please try again.", { duration: 5000 }),
