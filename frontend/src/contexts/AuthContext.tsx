@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { authApi, AuthUser, RegisterPayload } from "@/api/auth";
 import { setAccessToken, setStoredRefreshToken, getStoredRefreshToken, clearTokens } from "@/api/client";
 import { useRole } from "@/contexts/RoleContext";
@@ -24,6 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const { setRole } = useRole();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const restoreSession = async () => {
@@ -51,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
+    queryClient.clear();
     const { data: tokens } = await authApi.login({ email, password });
     setAccessToken(tokens.access_token);
     setStoredRefreshToken(tokens.refresh_token);
@@ -61,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const loginWithGoogle = async (code: string, codeVerifier: string) => {
+    queryClient.clear();
     const { data: tokens } = await authApi.googleCallback(code, codeVerifier);
     setAccessToken(tokens.access_token);
     setStoredRefreshToken(tokens.refresh_token);
@@ -78,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setUser(null);
     clearTokens();
+    queryClient.clear();
     toast.success("Logged out successfully.");
     navigate("/login", { replace: true });
   };
