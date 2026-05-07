@@ -14,7 +14,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Video, Trash2, ExternalLink, Play, AlertCircle, Info } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Plus, Video, Trash2, ExternalLink, Play, AlertCircle, Info, Pencil } from "lucide-react";
 import { playerApi, type HighlightItem } from "@/api/player";
 
 const MAX_HIGHLIGHTS = 6;
@@ -41,6 +42,7 @@ function HighlightEmbed({ highlight }: { highlight: HighlightItem }) {
 export default function HighlightsPage() {
   const qc = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<HighlightItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<HighlightItem | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [urlError, setUrlError] = useState("");
@@ -70,6 +72,27 @@ export default function HighlightsPage() {
     },
   });
 
+  const editMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { url: string; title?: string } }) =>
+      playerApi.updateHighlight(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["player-highlights"] });
+      setModalOpen(false);
+      setEditTarget(null);
+      setForm(emptyForm);
+      setUrlError("");
+      toast.success("Highlight updated successfully.");
+    },
+    onError: (err: any) => {
+      const detail = err.response?.data?.detail;
+      if (typeof detail === "string") {
+        setUrlError(detail);
+      } else {
+        toast.error("Failed to update highlight. Please try again.");
+      }
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => playerApi.deleteHighlight(id),
     onSuccess: () => {
@@ -85,10 +108,20 @@ export default function HighlightsPage() {
   const atLimit = highlights.length >= MAX_HIGHLIGHTS;
 
   const openCreate = () => {
+    setEditTarget(null);
     setForm(emptyForm);
     setUrlError("");
     setModalOpen(true);
   };
+
+  const openEdit = (h: HighlightItem) => {
+    setEditTarget(h);
+    setForm({ url: h.url, title: h.title ?? "" });
+    setUrlError("");
+    setModalOpen(true);
+  };
+
+  const isMutating = addMutation.isPending || editMutation.isPending;
 
   const handleSubmit = () => {
     setUrlError("");
@@ -96,7 +129,14 @@ export default function HighlightsPage() {
       setUrlError("Video URL is required.");
       return;
     }
-    addMutation.mutate({ url: form.url.trim(), title: form.title.trim() || undefined });
+    if (editTarget) {
+      editMutation.mutate({
+        id: editTarget.id,
+        data: { url: form.url.trim(), title: form.title.trim() || undefined },
+      });
+    } else {
+      addMutation.mutate({ url: form.url.trim(), title: form.title.trim() || undefined });
+    }
   };
 
   if (isLoading) {
@@ -164,9 +204,27 @@ export default function HighlightsPage() {
                     <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                       <Play className="w-4 h-4 text-primary" />
                     </div>
-                    <CardTitle className="text-sm font-semibold leading-snug truncate">
-                      {h.title ?? "Untitled highlight"}
-                    </CardTitle>
+                    <div className="min-w-0">
+                      <CardTitle className="text-sm font-semibold leading-snug truncate">
+                        {h.title ?? "Untitled highlight"}
+                      </CardTitle>
+                      <Badge
+                        variant={
+                          h.status === "approved"
+                            ? "default"
+                            : h.status === "rejected"
+                            ? "destructive"
+                            : "secondary"
+                        }
+                        className="mt-1 text-xs"
+                      >
+                        {h.status === "approved"
+                          ? "Approved"
+                          : h.status === "rejected"
+                          ? "Rejected"
+                          : "Pending Review"}
+                      </Badge>
+                    </div>
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
                     <a
@@ -179,6 +237,14 @@ export default function HighlightsPage() {
                         <ExternalLink className="w-3.5 h-3.5" />
                       </Button>
                     </a>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => openEdit(h)}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -198,10 +264,12 @@ export default function HighlightsPage() {
         </div>
       )}
 
-      <Dialog open={modalOpen} onOpenChange={(open) => { if (!addMutation.isPending) setModalOpen(open); }}>
+      <Dialog open={modalOpen} onOpenChange={(open) => { if (!isMutating) { setModalOpen(open); if (!open) setEditTarget(null); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-display">Add Highlight</DialogTitle>
+            <DialogTitle className="font-display">
+              {editTarget ? "Edit Highlight" : "Add Highlight"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
@@ -213,7 +281,7 @@ export default function HighlightsPage() {
                 value={form.url}
                 onChange={(e) => { setForm({ ...form, url: e.target.value }); setUrlError(""); }}
                 className="bg-muted/50"
-                disabled={addMutation.isPending}
+                disabled={isMutating}
               />
               {urlError ? (
                 <p className="text-xs text-destructive">{urlError}</p>
@@ -229,29 +297,29 @@ export default function HighlightsPage() {
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
                 maxLength={200}
                 className="bg-muted/50"
-                disabled={addMutation.isPending}
+                disabled={isMutating}
               />
             </div>
           </div>
           <DialogFooter>
             <Button
               variant="ghost"
-              onClick={() => setModalOpen(false)}
-              disabled={addMutation.isPending}
+              onClick={() => { setModalOpen(false); setEditTarget(null); }}
+              disabled={isMutating}
             >
               Cancel
             </Button>
             <Button
               variant="hero"
               onClick={handleSubmit}
-              disabled={addMutation.isPending || !form.url.trim()}
+              disabled={isMutating || !form.url.trim()}
             >
-              {addMutation.isPending ? (
+              {isMutating ? (
                 <span className="flex items-center gap-2">
-                  <Spinner size="sm" className="text-white" /> Adding…
+                  <Spinner size="sm" className="text-white" /> {editTarget ? "Saving…" : "Adding…"}
                 </span>
               ) : (
-                "Add Highlight"
+                editTarget ? "Save Changes" : "Add Highlight"
               )}
             </Button>
           </DialogFooter>

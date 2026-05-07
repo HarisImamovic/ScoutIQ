@@ -27,6 +27,7 @@ from app.schemas.club_admin import (
     UpdateReportStatusRequest,
 )
 from app.schemas.scout import ScoutPlayerItem, ScoutPlayersResponse
+from app.utils.notifications import create_notification
 
 router = APIRouter(prefix="/club", tags=["club_admin"])
 
@@ -353,6 +354,15 @@ def update_report_status(
 
     report.status = body.status
     report.updated_at = datetime.now(timezone.utc)
+
+    create_notification(
+        db,
+        report.scout_id,
+        "file",
+        f"Report {body.status.capitalize()}",
+        f"Your report for {report.player_name} has been {body.status}.",
+    )
+
     db.commit()
     db.refresh(report)
 

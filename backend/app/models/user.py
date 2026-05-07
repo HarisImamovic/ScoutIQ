@@ -68,6 +68,11 @@ class User(Base):
         uselist=False,
         foreign_keys="[Player.user_id]",
     )
+    notifications = relationship(
+        "Notification",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class RefreshToken(Base):

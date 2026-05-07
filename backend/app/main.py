@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
 from app.limiter import limiter
-from app.routers import auth, admin, club_admin, scout, player, highlights
+from app.routers import auth, admin, club_admin, scout, player, highlights, notifications
 from app.tasks import start_background_tasks
 
 settings = get_settings()
@@ -66,6 +66,7 @@ app.include_router(club_admin.router, prefix="/api/v1")
 app.include_router(scout.router, prefix="/api/v1")
 app.include_router(player.router, prefix="/api/v1")
 app.include_router(highlights.router, prefix="/api/v1")
+app.include_router(notifications.router, prefix="/api/v1")
 
 _static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 os.makedirs(os.path.join(_static_dir, "logos"), exist_ok=True)

@@ -15,6 +15,7 @@ from app.models.player_view import PlayerView
 from app.models.report import ScoutingReport
 from app.models.saved_prospect import SavedProspect
 from app.models.user import User
+from app.utils.notifications import create_notification
 from app.schemas.scout import (
     CreateScoutReportRequest,
     PlayerDropdownItem,
@@ -300,8 +301,36 @@ def save_prospect(
     if not db.query(Player).filter(Player.id == pid).first():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
 
+    player = db.query(Player).filter(Player.id == pid).first()
+    scout_name = f"{scout.first_name} {scout.last_name}"
+    player_name = f"{player.first_name} {player.last_name}" if player else "Unknown"
+
     try:
         db.add(SavedProspect(scout_id=scout.id, player_id=pid))
+        db.flush()
+
+        if scout.club_id:
+            club_admins = (
+                db.query(User)
+                .filter(
+                    User.club_id == scout.club_id,
+                    User.role == "club_admin",
+                    User.deleted_at.is_(None),
+                )
+                .all()
+            )
+            for ca in club_admins:
+                create_notification(
+                    db, ca.id, "star", "Prospect Saved",
+                    f"{scout_name} saved {player_name} as a prospect.",
+                )
+
+        if player and player.user_id:
+            create_notification(
+                db, player.user_id, "star", "Scout Interest",
+                "A scout saved you as a prospect.",
+            )
+
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -326,7 +355,27 @@ def unsave_prospect(
         .first()
     )
     if sp:
+        player = db.query(Player).filter(Player.id == pid).first()
         db.delete(sp)
+
+        if scout.club_id and player:
+            club_admins = (
+                db.query(User)
+                .filter(
+                    User.club_id == scout.club_id,
+                    User.role == "club_admin",
+                    User.deleted_at.is_(None),
+                )
+                .all()
+            )
+            scout_name = f"{scout.first_name} {scout.last_name}"
+            player_name = f"{player.first_name} {player.last_name}"
+            for ca in club_admins:
+                create_notification(
+                    db, ca.id, "star", "Prospect Unsaved",
+                    f"{scout_name} removed {player_name} from saved prospects.",
+                )
+
         db.commit()
 
 
@@ -387,6 +436,32 @@ def create_report(
         notes=body.notes,
     )
     db.add(report)
+    db.flush()
+
+    if body.status == "submitted" and scout.club_id:
+        club_admins = (
+            db.query(User)
+            .filter(
+                User.club_id == scout.club_id,
+                User.role == "club_admin",
+                User.deleted_at.is_(None),
+            )
+            .all()
+        )
+        for ca in club_admins:
+            create_notification(
+                db, ca.id, "file", "Report Pending Review",
+                f"{scout.first_name} {scout.last_name} submitted a report for {body.player_name.strip()}.",
+            )
+
+    if player_uuid:
+        linked_player = db.query(Player).filter(Player.id == player_uuid).first()
+        if linked_player and linked_player.user_id:
+            create_notification(
+                db, linked_player.user_id, "file", "New Report",
+                "A scout wrote a report about you.",
+            )
+
     db.commit()
     db.refresh(report)
 
@@ -432,12 +507,30 @@ def update_report(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
         report.player_id = player_uuid
 
+    old_status = report.status
     report.player_name = body.player_name.strip()
     report.position = body.position.strip().upper()
     report.rating = body.rating
     report.status = body.status
     report.notes = body.notes
     report.updated_at = datetime.now(timezone.utc)
+
+    if body.status == "submitted" and old_status != "submitted" and scout.club_id:
+        club_admins = (
+            db.query(User)
+            .filter(
+                User.club_id == scout.club_id,
+                User.role == "club_admin",
+                User.deleted_at.is_(None),
+            )
+            .all()
+        )
+        for ca in club_admins:
+            create_notification(
+                db, ca.id, "file", "Report Pending Review",
+                f"{scout.first_name} {scout.last_name} submitted a report for {body.player_name.strip()}.",
+            )
+
     db.commit()
     db.refresh(report)
 

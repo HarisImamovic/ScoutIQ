@@ -35,6 +35,7 @@ from app.schemas.admin import (
     UpdateUserRequest,
 )
 from app.security import hash_password
+from app.utils.notifications import create_notification
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -142,6 +143,18 @@ def create_user(
                 club_id=club_uuid,
                 status="active",
             ))
+        db.flush()
+
+        admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
+        for admin in admins:
+            create_notification(
+                db,
+                admin.id,
+                "profile",
+                "New User Created",
+                f"{body.first_name.strip()} {body.last_name.strip()} was created as {body.role}.",
+            )
+
         db.commit()
         db.refresh(new_user)
     except IntegrityError:
@@ -317,7 +330,7 @@ def download_clubs_template(_: User = Depends(require_global_admin)):
 @router.post("/clubs/bulk-import", response_model=BulkImportResult)
 async def bulk_import_clubs(
     file: UploadFile = File(...),
-    _: User = Depends(require_global_admin),
+    current_admin: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
     import openpyxl
@@ -389,6 +402,15 @@ async def bulk_import_clubs(
         created += 1
 
     if created:
+        admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
+        for admin in admins:
+            create_notification(
+                db,
+                admin.id,
+                "profile",
+                "Bulk Import Successful",
+                f"{created} club{'s' if created != 1 else ''} imported successfully.",
+            )
         db.commit()
 
     return BulkImportResult(created=created, errors=errors)
@@ -531,7 +553,7 @@ def download_players_template(_: User = Depends(require_global_admin)):
 @router.post("/players/bulk-import", response_model=BulkImportResult)
 async def bulk_import_players(
     file: UploadFile = File(...),
-    _: User = Depends(require_global_admin),
+    current_admin: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
     import openpyxl
@@ -640,6 +662,15 @@ async def bulk_import_players(
         created += 1
 
     if created:
+        admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
+        for admin in admins:
+            create_notification(
+                db,
+                admin.id,
+                "profile",
+                "Bulk Import Successful",
+                f"{created} player{'s' if created != 1 else ''} imported successfully.",
+            )
         db.commit()
 
     return BulkImportResult(created=created, errors=errors)
@@ -815,6 +846,12 @@ def update_user(
     user.club_id = club_uuid
     user.status = body.status
     user.updated_at = datetime.now(timezone.utc)
+
+    player = db.query(Player).filter(Player.user_id == uid).first()
+    if player:
+        player.club_id = club_uuid
+        player.first_name = body.first_name.strip()
+        player.last_name = body.last_name.strip()
 
     db.commit()
     db.refresh(user)
@@ -1065,6 +1102,7 @@ def update_player(
         if not club:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
 
+    old_status = player.status
     player.first_name = body.first_name.strip()
     player.last_name = body.last_name.strip()
     player.position = body.position.strip()
@@ -1073,6 +1111,19 @@ def update_player(
     player.club_id = club_uuid
     player.market_value = body.market_value
     player.status = body.status
+
+    if body.status != old_status:
+        from app.models.saved_prospect import SavedProspect
+        saved_rows = db.query(SavedProspect).filter(SavedProspect.player_id == player.id).all()
+        player_name = f"{player.first_name} {player.last_name}"
+        for sp in saved_rows:
+            create_notification(
+                db,
+                sp.scout_id,
+                "star",
+                "Player Status Update",
+                f"{player_name}'s status changed to {body.status}.",
+            )
 
     db.commit()
     db.refresh(player)
@@ -1162,12 +1213,22 @@ def update_report(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
         report.player_id = player_uuid
 
+    old_status = report.status
     report.player_name = body.player_name.strip()
     report.position = body.position.strip()
     report.rating = body.rating
     report.status = body.status
     report.notes = body.notes
     report.updated_at = datetime.now(timezone.utc)
+
+    if body.status in ("approved", "rejected") and body.status != old_status:
+        create_notification(
+            db,
+            report.scout_id,
+            "file",
+            f"Report {body.status.capitalize()}",
+            f"Your report for {body.player_name.strip()} has been {body.status}.",
+        )
 
     db.commit()
     db.refresh(report)

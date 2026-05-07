@@ -21,6 +21,7 @@ class PlayerHighlight(Base):
     title = Column(String(200), nullable=True)
     url = Column(Text, nullable=False)
     embed_url = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
