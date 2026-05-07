@@ -7,10 +7,12 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { UserRole } from "@/contexts/RoleContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { notificationsApi } from "@/api/notifications";
 
 type NavItem = { icon: React.ElementType; label: string; path: string };
 
@@ -45,6 +47,7 @@ const navByRole: Record<UserRole, NavItem[]> = {
     { icon: Building2, label: "Clubs", path: "/dashboard/admin/clubs" },
     { icon: Star, label: "Players", path: "/dashboard/admin/players" },
     { icon: FileText, label: "Reports", path: "/dashboard/admin/reports" },
+    { icon: Bell, label: "Notifications", path: "/dashboard/notifications" },
     { icon: Settings, label: "Settings", path: "/dashboard/settings" },
   ],
 };
@@ -80,6 +83,14 @@ export default function DashboardLayout() {
   const userInitials = user
     ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase()
     : roleInitials[role];
+
+  const { data: notifData = [] } = useQuery({
+    queryKey: ["notifications"],
+    queryFn: notificationsApi.getNotifications,
+    staleTime: 60_000,
+    enabled: !!user,
+  });
+  const notifCount = notifData.filter((n) => !n.is_read).length;
 
   const navItems = navByRole[role];
 
@@ -165,7 +176,11 @@ export default function DashboardLayout() {
             <Link to="/dashboard/notifications">
               <Button variant="ghost" size="icon" className="relative">
                 <Bell className="w-5 h-5" />
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full" />
+                {notifCount > 0 && (
+                  <span className="absolute top-1 right-1 min-w-[16px] h-4 bg-primary rounded-full text-primary-foreground text-[10px] flex items-center justify-center font-medium px-0.5">
+                    {notifCount > 99 ? "99+" : notifCount}
+                  </span>
+                )}
               </Button>
             </Link>
             <Button

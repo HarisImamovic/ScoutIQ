@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PlayerClubInfo(BaseModel):
@@ -46,7 +46,19 @@ class HighlightResponse(BaseModel):
     title: Optional[str]
     url: str
     embed_url: str
+    status: str
     created_at: datetime
+
+
+class HighlightStatusUpdate(BaseModel):
+    status: str
+
+    @field_validator("status")
+    @classmethod
+    def check_status(cls, v: str) -> str:
+        if v not in ("approved", "rejected"):
+            raise ValueError("Status must be 'approved' or 'rejected'.")
+        return v
 
 
 class PlayerDashboardResponse(BaseModel):

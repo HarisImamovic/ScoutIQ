@@ -54,6 +54,7 @@ export interface HighlightItem {
   title: string | null;
   url: string;
   embed_url: string;
+  status: string;
   created_at: string;
 }
 
@@ -71,6 +72,9 @@ export const playerApi = {
 
   addHighlight: (data: CreateHighlightPayload): Promise<HighlightItem> =>
     client.post("/player/highlights", data).then((r) => r.data),
+
+  updateHighlight: (id: string, data: CreateHighlightPayload): Promise<HighlightItem> =>
+    client.put(`/player/highlights/${id}`, data).then((r) => r.data),
 
   deleteHighlight: (id: string): Promise<void> =>
     client.delete(`/player/highlights/${id}`).then(() => undefined),

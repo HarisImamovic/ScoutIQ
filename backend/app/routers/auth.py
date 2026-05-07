@@ -28,6 +28,7 @@ from app.schemas.auth import (
     UpdateProfileRequest,
 )
 from app.schemas.user import UserResponse
+from app.utils.notifications import create_notification
 from app.security import (
     create_access_token,
     create_refresh_token,
@@ -70,6 +71,16 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
             last_name=payload.last_name,
             status="active",
         ))
+
+    admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
+    for admin in admins:
+        create_notification(
+            db,
+            admin.id,
+            "profile",
+            "New User Registered",
+            f"{payload.first_name} {payload.last_name} registered as {payload.role}.",
+        )
 
     db.commit()
     db.refresh(user)
@@ -439,6 +450,18 @@ def google_callback(
                 avatar_url=picture,
             )
             db.add(user)
+            db.flush()
+
+            admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
+            for admin in admins:
+                create_notification(
+                    db,
+                    admin.id,
+                    "profile",
+                    "New User Registered",
+                    f"{first_name} {last_name} registered via Google as scout.",
+                )
+
             db.commit()
             db.refresh(user)
 
