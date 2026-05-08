@@ -108,7 +108,7 @@ export default function ClubDashboard() {
               <div key={s.scout_id} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
                 <div>
                   <div className="font-medium text-sm">{s.name}</div>
-                  <div className="text-xs text-muted-foreground">{s.report_count} report{s.report_count !== 1 ? "s" : ""}</div>
+                  <div className="text-xs text-muted-foreground">{s.report_count} approved report{s.report_count !== 1 ? "s" : ""}</div>
                 </div>
                 <Badge variant="secondary" className="bg-primary/10 text-primary border-0">
                   <FileText className="w-3 h-3 mr-1" />{s.report_count}

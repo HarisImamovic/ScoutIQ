@@ -38,6 +38,7 @@ import MyPlayersPage from "./pages/dashboard/club/MyPlayersPage";
 
 import AdminUsersPage from "./pages/dashboard/admin/AdminUsersPage";
 import AdminClubsPage from "./pages/dashboard/admin/AdminClubsPage";
+import AdminLeaguesPage from "./pages/dashboard/admin/AdminLeaguesPage";
 import AdminPlayersPage from "./pages/dashboard/admin/AdminPlayersPage";
 import AdminReportsPage from "./pages/dashboard/admin/AdminReportsPage";
 
@@ -119,6 +120,7 @@ const App = () => (
 
                   <Route path="admin/users" element={<RoleRoute allowedRoles={["global_admin"]}><AdminUsersPage /></RoleRoute>} />
                   <Route path="admin/clubs" element={<RoleRoute allowedRoles={["global_admin"]}><AdminClubsPage /></RoleRoute>} />
+                  <Route path="admin/leagues" element={<RoleRoute allowedRoles={["global_admin"]}><AdminLeaguesPage /></RoleRoute>} />
                   <Route path="admin/players" element={<RoleRoute allowedRoles={["global_admin"]}><AdminPlayersPage /></RoleRoute>} />
                   <Route path="admin/reports" element={<RoleRoute allowedRoles={["global_admin"]}><AdminReportsPage /></RoleRoute>} />
 

@@ -251,6 +251,27 @@ class UpdatePlayerRequest(BaseModel):
         return v
 
 
+class AdminLeagueItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    country: str
+    logo_url: Optional[str] = None
+    club_count: int
+    created_at: datetime
+
+
+class CreateLeagueRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    country: str = Field(min_length=1, max_length=100)
+
+
+class UpdateLeagueRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    country: str = Field(min_length=1, max_length=100)
+
+
 class UpdateReportRequest(BaseModel):
     player_id: Optional[str] = None
     player_name: str = Field(min_length=1, max_length=200)
