@@ -109,10 +109,14 @@ def get_dashboard(
 
     scouts_data = (
         db.query(User, func.count(ScoutingReport.id).label("report_count"))
-        .outerjoin(ScoutingReport, ScoutingReport.scout_id == User.id)
+        .outerjoin(
+            ScoutingReport,
+            (ScoutingReport.scout_id == User.id) & (ScoutingReport.status == "approved"),
+        )
         .filter(User.club_id == club.id, User.role == "scout", User.deleted_at.is_(None))
         .group_by(User.id)
         .order_by(func.count(ScoutingReport.id).desc())
+        .limit(3)
         .all()
     )
 
@@ -135,7 +139,7 @@ def get_dashboard(
                 ScoutingReport.status.in_(["submitted", "approved", "rejected"]),
             )
             .order_by(ScoutingReport.created_at.desc())
-            .limit(5)
+            .limit(3)
             .all()
         )
 

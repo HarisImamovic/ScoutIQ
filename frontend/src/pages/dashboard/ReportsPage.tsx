@@ -125,7 +125,8 @@ export default function ReportsPage() {
 
   const openCreate = () => { setForm(emptyForm); setActiveReport(null); setModalMode("create"); };
   const openEdit = (r: ScoutReportItem) => {
-    setForm({ player_id: r.player_id ?? "", player_name: r.player_name, position: r.position, rating: String(r.rating), status: r.status, notes: r.notes ?? "" });
+    const editableStatus = r.status === "draft" || r.status === "submitted" ? r.status : "draft";
+    setForm({ player_id: r.player_id ?? "", player_name: r.player_name, position: r.position, rating: String(r.rating), status: editableStatus, notes: r.notes ?? "" });
     setActiveReport(r);
     setModalMode("edit");
   };

@@ -3,7 +3,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   LayoutDashboard, Users, FileText, Bot, Bell, Settings,
   Shield, Menu, X, ChevronLeft, Bookmark, Video,
-  DollarSign, Star, Building2, CheckSquare, LogOut
+  DollarSign, Star, Building2, CheckSquare, LogOut, Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -45,6 +45,7 @@ const navByRole: Record<UserRole, NavItem[]> = {
     { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard/admin" },
     { icon: Users, label: "Users", path: "/dashboard/admin/users" },
     { icon: Building2, label: "Clubs", path: "/dashboard/admin/clubs" },
+    { icon: Globe, label: "Leagues", path: "/dashboard/admin/leagues" },
     { icon: Star, label: "Players", path: "/dashboard/admin/players" },
     { icon: FileText, label: "Reports", path: "/dashboard/admin/reports" },
     { icon: Bell, label: "Notifications", path: "/dashboard/notifications" },

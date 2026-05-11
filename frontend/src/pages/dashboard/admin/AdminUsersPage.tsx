@@ -111,6 +111,7 @@ export default function AdminUsersPage() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+  const [viewTarget, setViewTarget] = useState<User | null>(null);
 
   useEffect(() => {
     client.get<{ items: User[]; total: number }>("/admin/users")
@@ -203,11 +204,12 @@ export default function AdminUsersPage() {
     },
     {
       id: "actions",
-      header: "",
+      header: "Actions",
       cell: ({ row }) => (
-        <div className="flex items-center justify-end gap-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(row.original)}><Edit2 className="w-3.5 h-3.5" /></Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(row.original.id)} disabled={Object.keys(rowSelection).length > 0}><Trash2 className="w-3.5 h-3.5" /></Button>
+        <div className="flex gap-1">
+          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openView(row.original)}><Eye className="w-4 h-4" /></Button>
+          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(row.original)}><Edit2 className="w-4 h-4" /></Button>
+          <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(row.original.id)} disabled={Object.keys(rowSelection).length > 0}><Trash2 className="w-4 h-4" /></Button>
         </div>
       ),
     },
@@ -244,6 +246,7 @@ export default function AdminUsersPage() {
     initialState: { pagination: { pageSize: 10 } },
   });
 
+  const openView = (u: User) => setViewTarget(u);
   const openCreate = () => {
     setEditTarget(null); setForm(emptyForm); setErrors({}); setShowPassword(false); setModalOpen(true);
   };
@@ -431,6 +434,7 @@ export default function AdminUsersPage() {
                   <p className="text-xs text-muted-foreground truncate max-w-[180px]">{u.email}</p>
                 </div>
                 <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openView(u)}><Eye className="w-4 h-4" /></Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(u)}><Edit2 className="w-4 h-4" /></Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(u.id)} disabled={selectedIds.length > 0}><Trash2 className="w-4 h-4" /></Button>
                 </div>
@@ -493,6 +497,58 @@ export default function AdminUsersPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={viewTarget !== null} onOpenChange={() => setViewTarget(null)}>
+        {viewTarget && (
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-display">User Details</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">First Name</p>
+                  <p className="font-medium text-sm">{viewTarget.first_name}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Last Name</p>
+                  <p className="font-medium text-sm">{viewTarget.last_name}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50 col-span-2">
+                  <p className="text-xs text-muted-foreground">Email</p>
+                  <p className="font-medium text-sm">{viewTarget.email}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Role</p>
+                  <Badge variant="outline" className={`mt-1 text-xs ${roleColors[viewTarget.role] ?? ""}`}>
+                    {roleLabel[viewTarget.role] ?? viewTarget.role}
+                  </Badge>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Status</p>
+                  <Badge variant="outline" className={`mt-1 ${statusColors[capitalize(viewTarget.status)] ?? ""}`}>
+                    {capitalize(viewTarget.status)}
+                  </Badge>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Club</p>
+                  <p className="font-medium text-sm">{viewTarget.club_name ?? "—"}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Joined</p>
+                  <p className="font-medium text-sm">{formatDate(viewTarget.created_at)}</p>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setViewTarget(null)}>Close</Button>
+              <Button variant="hero" onClick={() => { setViewTarget(null); setTimeout(() => openEdit(viewTarget), 50); }}>
+                <Edit2 className="w-4 h-4 mr-2" /> Edit
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
 
       {/* Create / Edit modal */}
       <Dialog open={modalOpen} onOpenChange={(open) => { if (!open) setErrors({}); setModalOpen(open); }}>

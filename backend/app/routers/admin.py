@@ -17,6 +17,7 @@ from app.models.report import ScoutingReport
 from app.models.user import User
 from app.schemas.admin import (
     AdminClubItem,
+    AdminLeagueItem,
     AdminPlayerItem,
     AdminReportItem,
     AdminUserItem,
@@ -25,11 +26,13 @@ from app.schemas.admin import (
     BulkImportResult,
     BulkImportRowError,
     CreateClubRequest,
+    CreateLeagueRequest,
     CreatePlayerRequest,
     CreateReportRequest,
     CreateUserRequest,
     ListResponse,
     UpdateClubRequest,
+    UpdateLeagueRequest,
     UpdatePlayerRequest,
     UpdateReportRequest,
     UpdateUserRequest,
@@ -44,13 +47,190 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # Helper: scouts lookup list (used by front-end report create modal)
 # ---------------------------------------------------------------------------
 
-@router.get("/leagues")
+@router.get("/leagues", response_model=ListResponse[AdminLeagueItem])
 def list_leagues(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
     leagues = db.query(League).order_by(League.name).all()
-    return [{"id": str(l.id), "name": l.name, "country": l.country} for l in leagues]
+    club_counts = {
+        row.league_id: row.cnt
+        for row in db.query(Club.league_id, func.count(Club.id).label("cnt"))
+        .filter(Club.league_id.isnot(None), Club.deleted_at.is_(None))
+        .group_by(Club.league_id)
+        .all()
+    }
+    items = [
+        AdminLeagueItem(
+            id=str(l.id),
+            name=l.name,
+            country=l.country,
+            logo_url=l.logo_url,
+            club_count=club_counts.get(l.id, 0),
+            created_at=l.created_at,
+        )
+        for l in leagues
+    ]
+    return ListResponse(items=items, total=len(items))
+
+
+@router.post("/leagues", response_model=AdminLeagueItem, status_code=status.HTTP_201_CREATED)
+def create_league(
+    body: CreateLeagueRequest,
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    new_league = League(
+        name=body.name.strip(),
+        country=body.country.strip(),
+    )
+    db.add(new_league)
+    db.commit()
+    db.refresh(new_league)
+    return AdminLeagueItem(
+        id=str(new_league.id),
+        name=new_league.name,
+        country=new_league.country,
+        logo_url=None,
+        club_count=0,
+        created_at=new_league.created_at,
+    )
+
+
+@router.post("/leagues/bulk-delete", response_model=BulkDeleteResult)
+def bulk_delete_leagues(
+    body: BulkDeleteRequest,
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    uuids = []
+    for raw in body.ids:
+        try:
+            uuids.append(_uuid.UUID(raw))
+        except ValueError:
+            pass
+    if not uuids:
+        return BulkDeleteResult(deleted=0)
+    count = db.query(League).filter(League.id.in_(uuids)).delete(synchronize_session=False)
+    db.commit()
+    return BulkDeleteResult(deleted=count)
+
+
+@router.put("/leagues/{league_id}", response_model=AdminLeagueItem)
+def update_league(
+    league_id: str,
+    body: UpdateLeagueRequest,
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        lid = _uuid.UUID(league_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid league_id format.")
+
+    league = db.query(League).filter(League.id == lid).first()
+    if not league:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="League not found.")
+
+    league.name = body.name.strip()
+    league.country = body.country.strip()
+    db.commit()
+    db.refresh(league)
+
+    club_count = (
+        db.query(func.count(Club.id))
+        .filter(Club.league_id == league.id, Club.deleted_at.is_(None))
+        .scalar()
+    ) or 0
+
+    return AdminLeagueItem(
+        id=str(league.id),
+        name=league.name,
+        country=league.country,
+        logo_url=league.logo_url,
+        club_count=club_count,
+        created_at=league.created_at,
+    )
+
+
+@router.delete("/leagues/{league_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_league(
+    league_id: str,
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+) -> None:
+    try:
+        lid = _uuid.UUID(league_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid league_id format.")
+
+    league = db.query(League).filter(League.id == lid).first()
+    if not league:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="League not found.")
+
+    db.delete(league)
+    db.commit()
+
+
+@router.post("/leagues/{league_id}/logo", response_model=AdminLeagueItem)
+async def upload_league_logo(
+    league_id: str,
+    file: UploadFile = File(...),
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    import os
+
+    try:
+        lid = _uuid.UUID(league_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid league_id format.")
+
+    league = db.query(League).filter(League.id == lid).first()
+    if not league:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="League not found.")
+
+    raw = await file.read()
+    if len(raw) > _LOGO_MAX_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Logo must not exceed 2 MB.")
+
+    ext = _detect_image_ext(raw)
+    if not ext:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only PNG, JPEG, and WebP images are accepted.",
+        )
+
+    logos_dir = os.path.join(os.path.dirname(__file__), "..", "..", "static", "logos")
+    os.makedirs(logos_dir, exist_ok=True)
+
+    filename = f"league_{league_id}.{ext}"
+    for old_ext in ("png", "jpg", "webp"):
+        old_path = os.path.join(logos_dir, f"league_{league_id}.{old_ext}")
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    with open(os.path.join(logos_dir, filename), "wb") as f:
+        f.write(raw)
+
+    league.logo_url = f"/static/logos/{filename}"
+    db.commit()
+    db.refresh(league)
+
+    club_count = (
+        db.query(func.count(Club.id))
+        .filter(Club.league_id == league.id, Club.deleted_at.is_(None))
+        .scalar()
+    ) or 0
+
+    return AdminLeagueItem(
+        id=str(league.id),
+        name=league.name,
+        country=league.country,
+        logo_url=league.logo_url,
+        club_count=club_count,
+        created_at=league.created_at,
+    )
 
 
 @router.get("/scouts")

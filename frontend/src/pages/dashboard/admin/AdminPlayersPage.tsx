@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Plus,
+  Eye,
   Edit2,
   Trash2,
   Search,
@@ -153,6 +154,8 @@ const emptyForm = {
   nationality: "",
   club_id: "none",
   status: "active",
+  date_of_birth: "",
+  market_value: "",
 };
 
 export default function AdminPlayersPage() {
@@ -172,6 +175,7 @@ export default function AdminPlayersPage() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [viewTarget, setViewTarget] = useState<Player | null>(null);
 
   useEffect(() => {
     client
@@ -189,12 +193,16 @@ export default function AdminPlayersPage() {
       );
   }, []);
 
+  const marketValueNum = form.market_value !== "" ? parseFloat(form.market_value) : null;
+  const marketValueInvalid = form.market_value !== "" && (isNaN(marketValueNum!) || marketValueNum! < 0);
+
   const hasErrors =
     !form.first_name.trim() ||
     form.first_name.length > 100 ||
     !form.last_name.trim() ||
     form.last_name.length > 100 ||
-    form.nationality.length > 100;
+    form.nationality.length > 100 ||
+    marketValueInvalid;
 
   const filtered = useMemo(
     () =>
@@ -213,6 +221,7 @@ export default function AdminPlayersPage() {
     [players, globalFilter, posFilter, statusFilter],
   );
 
+  const openView = (p: Player) => setViewTarget(p);
   const openCreate = () => {
     setEditTarget(null);
     setForm(emptyForm);
@@ -228,6 +237,8 @@ export default function AdminPlayersPage() {
       nationality: p.nationality ?? "",
       club_id: matchedClub?.id ?? "none",
       status: p.status,
+      date_of_birth: p.date_of_birth ?? "",
+      market_value: p.market_value != null ? String(p.market_value / 1_000_000) : "",
     });
     setModalOpen(true);
   };
@@ -344,26 +355,12 @@ export default function AdminPlayersPage() {
       },
       {
         id: "actions",
-        header: "",
+        header: "Actions",
         cell: ({ row }) => (
-          <div className="flex items-center justify-end gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => openEdit(row.original)}
-            >
-              <Edit2 className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-destructive hover:text-destructive"
-              onClick={() => setDeleteId(row.original.id)}
-              disabled={Object.keys(rowSelection).length > 0}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </Button>
+          <div className="flex gap-1">
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openView(row.original)}><Eye className="w-4 h-4" /></Button>
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(row.original)}><Edit2 className="w-4 h-4" /></Button>
+            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(row.original.id)} disabled={Object.keys(rowSelection).length > 0}><Trash2 className="w-4 h-4" /></Button>
           </div>
         ),
       },
@@ -405,6 +402,8 @@ export default function AdminPlayersPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      const mvAbsolute = form.market_value !== "" ? Math.round(parseFloat(form.market_value) * 1_000_000) : null;
+
       if (editTarget) {
         const { data } = await client.put<Player>(
           `/admin/players/${editTarget.id}`,
@@ -415,8 +414,8 @@ export default function AdminPlayersPage() {
             nationality: form.nationality || null,
             club_id: form.club_id === "none" ? null : form.club_id || null,
             status: form.status,
-            date_of_birth: editTarget.date_of_birth || null,
-            market_value: editTarget.market_value,
+            date_of_birth: form.date_of_birth || null,
+            market_value: mvAbsolute,
           },
         );
         setPlayers((prev) =>
@@ -426,8 +425,14 @@ export default function AdminPlayersPage() {
         toast.success("Player updated successfully.");
       } else {
         const { data } = await client.post<Player>("/admin/players", {
-          ...form,
+          first_name: form.first_name,
+          last_name: form.last_name,
+          position: form.position,
+          nationality: form.nationality || null,
           club_id: form.club_id === "none" ? null : form.club_id || null,
+          status: form.status,
+          date_of_birth: form.date_of_birth || null,
+          market_value: mvAbsolute,
         });
         setPlayers((prev) => [data, ...prev]);
         setModalOpen(false);
@@ -586,6 +591,7 @@ export default function AdminPlayersPage() {
                   <p className="text-xs text-muted-foreground">{p.position}{p.nationality ? ` · ${p.nationality}` : ""}{age != null ? ` · Age ${age}` : ""}</p>
                 </div>
                 <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openView(p)}><Eye className="w-4 h-4" /></Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p)}><Edit2 className="w-4 h-4" /></Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(p.id)} disabled={selectedIds.length > 0}><Trash2 className="w-4 h-4" /></Button>
                 </div>
@@ -681,6 +687,60 @@ export default function AdminPlayersPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={viewTarget !== null} onOpenChange={() => setViewTarget(null)}>
+        {viewTarget && (
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-display">Player Details</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">First Name</p>
+                  <p className="font-medium text-sm">{viewTarget.first_name}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Last Name</p>
+                  <p className="font-medium text-sm">{viewTarget.last_name}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Position</p>
+                  <Badge variant="outline" className="mt-1 text-xs">{viewTarget.position}</Badge>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Age</p>
+                  <p className="font-medium text-sm">{calcAge(viewTarget.date_of_birth) ?? "—"}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Nationality</p>
+                  <p className="font-medium text-sm">{viewTarget.nationality ?? "—"}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Club</p>
+                  <p className="font-medium text-sm">{viewTarget.club_name ?? "Free agent"}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Market Value</p>
+                  <p className="font-display font-bold text-primary text-sm">{formatValue(viewTarget.market_value)}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/50">
+                  <p className="text-xs text-muted-foreground">Status</p>
+                  <Badge variant="outline" className={`mt-1 ${statusColors[capitalize(viewTarget.status)] ?? "bg-muted text-muted-foreground"}`}>
+                    {capitalize(viewTarget.status)}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setViewTarget(null)}>Close</Button>
+              <Button variant="hero" onClick={() => { setViewTarget(null); setTimeout(() => openEdit(viewTarget), 50); }}>
+                <Edit2 className="w-4 h-4 mr-2" /> Edit
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
 
       {/* Create / Edit modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
@@ -781,7 +841,6 @@ export default function AdminPlayersPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                {form.nationality.length > 100 && <div className="h-4" />}
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -797,6 +856,33 @@ export default function AdminPlayersPage() {
                 />
                 {form.nationality.length > 100 && (
                   <p className="text-xs text-destructive">Exceeds 100 character limit</p>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Date of Birth</Label>
+                <Input
+                  type="date"
+                  value={form.date_of_birth}
+                  onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })}
+                  className="bg-muted/50"
+                  max={new Date().toISOString().split("T")[0]}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Market Value (M€)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  placeholder="e.g. 50"
+                  value={form.market_value}
+                  onChange={(e) => setForm({ ...form, market_value: e.target.value })}
+                  className={`bg-muted/50 ${marketValueInvalid ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                />
+                {marketValueInvalid && (
+                  <p className="text-xs text-destructive">Must be a non-negative number</p>
                 )}
               </div>
             </div>
