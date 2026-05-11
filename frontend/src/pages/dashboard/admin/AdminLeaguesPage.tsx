@@ -48,10 +48,17 @@ function CharCount({ value, max }: { value: string; max: number }) {
   );
 }
 
+function resolveLogoUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `${import.meta.env.VITE_API_URL}${url}`;
+}
+
 function LeagueLogo({ name, logoUrl, size = "sm" }: { name: string; logoUrl: string | null; size?: "sm" | "md" }) {
   const dim = size === "sm" ? "w-7 h-7" : "w-10 h-10";
-  if (logoUrl) {
-    return <img src={logoUrl} alt={name} className={`${dim} rounded object-contain bg-muted`} />;
+  const resolved = resolveLogoUrl(logoUrl);
+  if (resolved) {
+    return <img src={resolved} alt={name} className={`${dim} rounded object-contain bg-muted`} />;
   }
   return (
     <div className={`${dim} rounded bg-muted flex items-center justify-center shrink-0`}>
@@ -539,7 +546,15 @@ export default function AdminLeaguesPage() {
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
                     className="bg-muted/50 cursor-pointer"
-                    onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      if (f && !["image/png", "image/jpeg", "image/webp"].includes(f.type)) {
+                        toast.error("Only PNG, JPEG, and WebP images are accepted.");
+                        e.target.value = "";
+                        return;
+                      }
+                      setLogoFile(f);
+                    }}
                   />
                   <p className="text-xs text-muted-foreground mt-1">PNG, JPEG, or WebP · Max 2 MB</p>
                 </div>

@@ -604,7 +604,15 @@ export default function AdminClubsPage() {
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
                     className="bg-muted/50 cursor-pointer"
-                    onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      if (f && !["image/png", "image/jpeg", "image/webp"].includes(f.type)) {
+                        toast.error("Only PNG, JPEG, and WebP images are accepted.");
+                        e.target.value = "";
+                        return;
+                      }
+                      setLogoFile(f);
+                    }}
                   />
                   <p className="text-xs text-muted-foreground mt-1">PNG, JPEG, or WebP · Max 2 MB</p>
                 </div>
