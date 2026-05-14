@@ -17,8 +17,14 @@ def run():
                 title VARCHAR(200) NOT NULL,
                 body VARCHAR(500) NOT NULL,
                 action_data JSONB,
+                is_read BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
+        """))
+
+        conn.execute(text("""
+            ALTER TABLE notifications
+            ADD COLUMN IF NOT EXISTS is_read BOOLEAN NOT NULL DEFAULT FALSE
         """))
 
         conn.execute(text("""
