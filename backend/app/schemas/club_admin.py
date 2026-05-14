@@ -84,11 +84,13 @@ class UpdateReportStatusRequest(BaseModel):
 
 class ContractItem(BaseModel):
     id: str
-    club_id: str
+    player_id: str
     player_name: str
-    position: str
+    position: Optional[str]
     age: Optional[int]
+    club_id: str
     weekly_salary: int
+    start_date: Optional[date]
     contract_until: Optional[date]
     availability_status: str
     created_at: datetime
@@ -99,10 +101,9 @@ _AVAILABILITY_STATUSES = {"active", "injured", "on_loan"}
 
 
 class CreateContractRequest(BaseModel):
-    player_name: str = Field(min_length=1, max_length=200)
-    position: str = Field(min_length=1, max_length=10)
-    age: Optional[int] = Field(None, ge=15, le=50)
+    player_id: str
     weekly_salary: int = Field(ge=1)
+    start_date: Optional[date] = None
     contract_until: Optional[date] = None
     availability_status: str = "active"
 
@@ -114,5 +115,15 @@ class CreateContractRequest(BaseModel):
         return v
 
 
-class UpdateContractRequest(CreateContractRequest):
-    pass
+class UpdateContractRequest(BaseModel):
+    weekly_salary: int = Field(ge=1)
+    start_date: Optional[date] = None
+    contract_until: Optional[date] = None
+    availability_status: str = "active"
+
+    @field_validator("availability_status")
+    @classmethod
+    def validate_availability(cls, v: str) -> str:
+        if v not in _AVAILABILITY_STATUSES:
+            raise ValueError("availability_status must be 'active', 'injured', or 'on_loan'")
+        return v
