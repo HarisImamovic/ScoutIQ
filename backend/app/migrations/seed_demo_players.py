@@ -13,13 +13,16 @@ from datetime import date
 from app.database import SessionLocal
 import app.models.club  # noqa: F401
 import app.models.league  # noqa: F401
-import app.models.user  # noqa: F401
+import app.models.notification  # noqa: F401
+import app.models.password_reset_token  # noqa: F401
 import app.models.player  # noqa: F401
 import app.models.player_contract  # noqa: F401
+import app.models.player_highlight  # noqa: F401
+import app.models.player_market_value_history  # noqa: F401
 import app.models.player_view  # noqa: F401
 import app.models.report  # noqa: F401
 import app.models.saved_prospect  # noqa: F401
-import app.models.password_reset_token  # noqa: F401
+import app.models.user  # noqa: F401
 from app.models.club import Club
 from app.models.player import Player
 

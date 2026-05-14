@@ -13,9 +13,17 @@ build/
 .venv/
 venv/
 
-# Logs
+# Logs and dev server output
 *.log
+*-err.txt
+*-out.txt
 
 # Environment secrets — never commit real .env files
 backend/.env
 frontend/.env
+.env.test
+
+# Playwright
+node_modules/
+playwright-report/
+test-results/

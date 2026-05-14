@@ -89,13 +89,15 @@ def run():
     try:
         import app.models.club  # noqa: F401
         import app.models.league  # noqa: F401
-        import app.models.user  # noqa: F401
+        import app.models.notification  # noqa: F401
+        import app.models.password_reset_token  # noqa: F401
+        import app.models.player_contract  # noqa: F401
+        import app.models.player_highlight  # noqa: F401
+        import app.models.player_market_value_history  # noqa: F401
+        import app.models.player_view  # noqa: F401
         import app.models.report  # noqa: F401
         import app.models.saved_prospect  # noqa: F401
-        import app.models.player_view  # noqa: F401
-        import app.models.player_contract  # noqa: F401
-        import app.models.password_reset_token  # noqa: F401
-        import app.models.player_market_value_history  # noqa: F401
+        import app.models.user  # noqa: F401
         from app.models.player import Player
 
         players = db.query(Player).all()
@@ -118,8 +120,8 @@ def run():
             if p.market_value:
                 for point in _mv_history(p.market_value, now):
                     db.execute(text("""
-                        INSERT INTO player_market_value_history (player_id, value, recorded_at)
-                        VALUES (:player_id, :value, :recorded_at)
+                        INSERT INTO player_market_value_history (id, player_id, value, recorded_at)
+                        VALUES (gen_random_uuid(), :player_id, :value, :recorded_at)
                     """), {"player_id": str(p.id), **point})
 
             seeded += 1

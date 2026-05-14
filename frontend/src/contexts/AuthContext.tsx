@@ -60,7 +60,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: me } = await authApi.me();
     setUser(me);
     setRole(me.role as UserRole);
-    navigate("/dashboard", { replace: true });
   };
 
   const loginWithGoogle = async (code: string, codeVerifier: string) => {

@@ -6,8 +6,15 @@ from datetime import date, datetime, timezone, timedelta
 from app.database import SessionLocal
 from app.models.club import Club
 from app.models.league import League
+from app.models.notification import Notification  # noqa: F401
+from app.models.password_reset_token import PasswordResetToken  # noqa: F401
 from app.models.player import Player
+from app.models.player_contract import PlayerContract  # noqa: F401
+from app.models.player_highlight import PlayerHighlight  # noqa: F401
+from app.models.player_market_value_history import PlayerMarketValueHistory  # noqa: F401
+from app.models.player_view import PlayerView  # noqa: F401
 from app.models.report import ScoutingReport
+from app.models.saved_prospect import SavedProspect  # noqa: F401
 from app.models.user import User
 from app.security import hash_password
 
@@ -17,6 +24,7 @@ def seed():
     try:
         _seed_leagues(db)
         _seed_clubs(db)
+        _seed_test_users(db)
         _seed_users(db)
         _seed_players(db)
         _seed_reports(db)
@@ -73,6 +81,57 @@ def _seed_clubs(db):
     db.add_all(clubs)
     db.flush()
     print(f"Inserted {len(clubs)} clubs.")
+
+
+def _seed_test_users(db):
+    pw = hash_password("Ouklnbquhb77!")
+    bayern = db.query(Club).filter(Club.name == "Bayern Munich").first()
+
+    test_accounts = [
+        ("testglobaladmin@test.com", "Test",  "Admin",      "global_admin", None),
+        ("testscout@test.com",       "Test",  "Scout",      "scout",        bayern.id if bayern else None),
+        ("testclubadmin@test.com",   "Test",  "Club Admin", "club_admin",   bayern.id if bayern else None),
+    ]
+
+    for email, first, last, role, club_id in test_accounts:
+        if db.query(User).filter(User.email == email).first():
+            continue
+        db.add(User(
+            email=email,
+            password_hash=pw,
+            first_name=first,
+            last_name=last,
+            role=role,
+            club_id=club_id,
+            status="active",
+        ))
+
+    if not db.query(User).filter(User.email == "testplayer1@test.com").first():
+        player_user = User(
+            email="testplayer1@test.com",
+            password_hash=pw,
+            first_name="Test",
+            last_name="Player",
+            role="player",
+            club_id=bayern.id if bayern else None,
+            status="active",
+        )
+        db.add(player_user)
+        db.flush()
+        db.add(Player(
+            first_name="Test",
+            last_name="Player",
+            date_of_birth=date(2000, 1, 1),
+            nationality="English",
+            position="ST",
+            club_id=bayern.id if bayern else None,
+            market_value=1_000_000,
+            status="active",
+            user_id=player_user.id,
+        ))
+
+    db.flush()
+    print("Inserted test user accounts.")
 
 
 def _seed_users(db):

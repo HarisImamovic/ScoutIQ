@@ -564,7 +564,7 @@ export default function AdminUsersPage() {
                 </div>
                 <Input
                   value={form.first_name}
-                  onChange={(e) => { setForm({ ...form, first_name: e.target.value }); setErrors(p => ({ ...p, first_name: undefined })); }}
+                  onChange={(e) => { const v = e.target.value; setForm(prev => ({ ...prev, first_name: v })); setErrors(p => ({ ...p, first_name: undefined })); }}
                   className={`bg-muted/50 ${errors.first_name ? "border-destructive focus-visible:ring-destructive" : ""}`}
                 />
                 {errors.first_name
@@ -579,7 +579,7 @@ export default function AdminUsersPage() {
                 </div>
                 <Input
                   value={form.last_name}
-                  onChange={(e) => { setForm({ ...form, last_name: e.target.value }); setErrors(p => ({ ...p, last_name: undefined })); }}
+                  onChange={(e) => { const v = e.target.value; setForm(prev => ({ ...prev, last_name: v })); setErrors(p => ({ ...p, last_name: undefined })); }}
                   className={`bg-muted/50 ${errors.last_name ? "border-destructive focus-visible:ring-destructive" : ""}`}
                 />
                 {errors.last_name
@@ -596,7 +596,7 @@ export default function AdminUsersPage() {
               <Input
                 type="email"
                 value={form.email}
-                onChange={(e) => { setForm({ ...form, email: e.target.value }); setErrors(p => ({ ...p, email: undefined })); }}
+                onChange={(e) => { const v = e.target.value; setForm(prev => ({ ...prev, email: v })); setErrors(p => ({ ...p, email: undefined })); }}
                 className={`bg-muted/50 ${errors.email ? "border-destructive focus-visible:ring-destructive" : ""}`}
               />
               {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
@@ -609,7 +609,7 @@ export default function AdminUsersPage() {
                   <Input
                     type={showPassword ? "text" : "password"}
                     value={form.password}
-                    onChange={(e) => { setForm({ ...form, password: e.target.value }); setErrors(p => ({ ...p, password: undefined })); }}
+                    onChange={(e) => { const v = e.target.value; setForm(prev => ({ ...prev, password: v })); setErrors(p => ({ ...p, password: undefined })); }}
                     onFocus={() => setPasswordFocused(true)}
                     onBlur={() => setPasswordFocused(false)}
                     className={`bg-muted/50 pr-10 ${errors.password ? "border-destructive focus-visible:ring-destructive" : ""}`}
