@@ -6,8 +6,15 @@ from datetime import date, datetime, timezone, timedelta
 from app.database import SessionLocal
 from app.models.club import Club
 from app.models.league import League
+from app.models.notification import Notification  # noqa: F401
+from app.models.password_reset_token import PasswordResetToken  # noqa: F401
 from app.models.player import Player
+from app.models.player_contract import PlayerContract  # noqa: F401
+from app.models.player_highlight import PlayerHighlight  # noqa: F401
+from app.models.player_market_value_history import PlayerMarketValueHistory  # noqa: F401
+from app.models.player_view import PlayerView  # noqa: F401
 from app.models.report import ScoutingReport
+from app.models.saved_prospect import SavedProspect  # noqa: F401
 from app.models.user import User
 from app.security import hash_password
 
