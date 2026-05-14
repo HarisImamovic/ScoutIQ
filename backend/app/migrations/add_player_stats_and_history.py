@@ -118,8 +118,8 @@ def run():
             if p.market_value:
                 for point in _mv_history(p.market_value, now):
                     db.execute(text("""
-                        INSERT INTO player_market_value_history (player_id, value, recorded_at)
-                        VALUES (:player_id, :value, :recorded_at)
+                        INSERT INTO player_market_value_history (id, player_id, value, recorded_at)
+                        VALUES (gen_random_uuid(), :player_id, :value, :recorded_at)
                     """), {"player_id": str(p.id), **point})
 
             seeded += 1
