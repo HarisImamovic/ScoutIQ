@@ -394,13 +394,14 @@ def list_contracts(
     db: Session = Depends(get_db),
 ):
     club = _get_club(admin, db)
-    contracts = (
-        db.query(PlayerContract)
+    rows = (
+        db.query(PlayerContract, Player)
+        .join(Player, PlayerContract.player_id == Player.id)
         .filter(PlayerContract.club_id == club.id)
         .order_by(PlayerContract.created_at.desc())
         .all()
     )
-    return [_contract_to_item(c) for c in contracts]
+    return [_contract_to_item(c, p) for c, p in rows]
 
 
 @router.post("/contracts", response_model=ContractItem, status_code=status.HTTP_201_CREATED)
@@ -410,19 +411,28 @@ def create_contract(
     db: Session = Depends(get_db),
 ):
     club = _get_club(admin, db)
+
+    try:
+        pid = _uuid.UUID(body.player_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid player_id.")
+
+    player = db.query(Player).filter(Player.id == pid, Player.club_id == club.id).first()
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found in your club.")
+
     contract = PlayerContract(
+        player_id=pid,
         club_id=club.id,
-        player_name=body.player_name.strip(),
-        position=body.position.strip().upper(),
-        age=body.age,
         weekly_salary=body.weekly_salary,
+        start_date=body.start_date,
         contract_until=body.contract_until,
         availability_status=body.availability_status,
     )
     db.add(contract)
     db.commit()
     db.refresh(contract)
-    return _contract_to_item(contract)
+    return _contract_to_item(contract, player)
 
 
 @router.put("/contracts/{contract_id}", response_model=ContractItem)
@@ -439,24 +449,24 @@ def update_contract(
     except ValueError:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid contract_id.")
 
-    contract = (
-        db.query(PlayerContract)
+    row = (
+        db.query(PlayerContract, Player)
+        .join(Player, PlayerContract.player_id == Player.id)
         .filter(PlayerContract.id == cid, PlayerContract.club_id == club.id)
         .first()
     )
-    if not contract:
+    if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contract not found.")
 
-    contract.player_name = body.player_name.strip()
-    contract.position = body.position.strip().upper()
-    contract.age = body.age
+    contract, player = row
     contract.weekly_salary = body.weekly_salary
+    contract.start_date = body.start_date
     contract.contract_until = body.contract_until
     contract.availability_status = body.availability_status
     contract.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(contract)
-    return _contract_to_item(contract)
+    return _contract_to_item(contract, player)
 
 
 @router.delete("/contracts/{contract_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -484,14 +494,22 @@ def delete_contract(
     db.commit()
 
 
-def _contract_to_item(c: PlayerContract) -> ContractItem:
+def _contract_to_item(c: PlayerContract, p: Player) -> ContractItem:
+    age = None
+    if p.date_of_birth:
+        today = date.today()
+        age = today.year - p.date_of_birth.year - (
+            (today.month, today.day) < (p.date_of_birth.month, p.date_of_birth.day)
+        )
     return ContractItem(
         id=str(c.id),
+        player_id=str(c.player_id),
+        player_name=f"{p.first_name} {p.last_name}",
+        position=p.position,
+        age=age,
         club_id=str(c.club_id),
-        player_name=c.player_name,
-        position=c.position,
-        age=c.age,
         weekly_salary=c.weekly_salary,
+        start_date=c.start_date,
         contract_until=c.contract_until,
         availability_status=c.availability_status,
         created_at=c.created_at,

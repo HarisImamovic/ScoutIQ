@@ -56,6 +56,7 @@ jobs:
           python migrations/seed.py
           python -m app.migrations.add_player_stats_and_history
           python -m app.migrations.seed_demo_players
+          python -m app.migrations.redesign_contracts
 
       - name: Start backend
         working-directory: backend

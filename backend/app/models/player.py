@@ -60,3 +60,8 @@ class Player(Base):
         back_populates="player",
         cascade="all, delete-orphan",
     )
+    contracts = relationship(
+        "PlayerContract",
+        back_populates="player",
+        cascade="all, delete-orphan",
+    )
