@@ -12,6 +12,7 @@ import {
   RowSelectionState,
 } from "@tanstack/react-table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -862,12 +863,11 @@ export default function AdminPlayersPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Date of Birth</Label>
-                <Input
-                  type="date"
+                <DatePicker
                   value={form.date_of_birth}
-                  onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })}
-                  className="bg-muted/50"
-                  max={new Date().toISOString().split("T")[0]}
+                  onChange={(v) => setForm({ ...form, date_of_birth: v })}
+                  placeholder="Select date of birth"
+                  disabled={(date) => date > new Date()}
                 />
               </div>
               <div className="space-y-2">
