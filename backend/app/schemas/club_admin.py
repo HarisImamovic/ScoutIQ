@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ClubInfo(BaseModel):
@@ -102,9 +102,9 @@ _AVAILABILITY_STATUSES = {"active", "injured", "on_loan"}
 
 class CreateContractRequest(BaseModel):
     player_id: str
-    weekly_salary: int = Field(ge=1)
-    start_date: Optional[date] = None
-    contract_until: Optional[date] = None
+    weekly_salary: int = Field(ge=1, le=3_000_000)
+    start_date: date
+    contract_until: date
     availability_status: str = "active"
 
     @field_validator("availability_status")
@@ -113,12 +113,18 @@ class CreateContractRequest(BaseModel):
         if v not in _AVAILABILITY_STATUSES:
             raise ValueError("availability_status must be 'active', 'injured', or 'on_loan'")
         return v
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "CreateContractRequest":
+        if self.start_date > self.contract_until:
+            raise ValueError("start_date must be on or before contract_until")
+        return self
 
 
 class UpdateContractRequest(BaseModel):
-    weekly_salary: int = Field(ge=1)
-    start_date: Optional[date] = None
-    contract_until: Optional[date] = None
+    weekly_salary: int = Field(ge=1, le=3_000_000)
+    start_date: date
+    contract_until: date
     availability_status: str = "active"
 
     @field_validator("availability_status")
@@ -127,3 +133,9 @@ class UpdateContractRequest(BaseModel):
         if v not in _AVAILABILITY_STATUSES:
             raise ValueError("availability_status must be 'active', 'injured', or 'on_loan'")
         return v
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "UpdateContractRequest":
+        if self.start_date and self.contract_until and self.start_date > self.contract_until:
+            raise ValueError("start_date must be on or before contract_until")
+        return self

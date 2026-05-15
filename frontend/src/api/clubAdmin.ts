@@ -11,6 +11,10 @@ export function isNoClubError(error: unknown): boolean {
   );
 }
 
+export function isConflictError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 409;
+}
+
 export interface ClubInfo {
   id: string;
   name: string;
@@ -80,11 +84,13 @@ export interface ClubReportItem {
 
 export interface ContractItem {
   id: string;
+  player_id: string;
   club_id: string;
   player_name: string;
-  position: string;
+  position: string | null;
   age: number | null;
   weekly_salary: number;
+  start_date: string | null;
   contract_until: string | null;
   availability_status: string;
   created_at: string;
@@ -92,11 +98,17 @@ export interface ContractItem {
 }
 
 export interface CreateContractPayload {
-  player_name: string;
-  position: string;
-  age?: number | null;
+  player_id: string;
   weekly_salary: number;
-  contract_until?: string | null;
+  start_date: string;
+  contract_until: string;
+  availability_status: string;
+}
+
+export interface UpdateContractPayload {
+  weekly_salary: number;
+  start_date: string;
+  contract_until: string;
   availability_status: string;
 }
 
@@ -129,7 +141,7 @@ export const clubAdminApi = {
   createContract: (data: CreateContractPayload): Promise<ContractItem> =>
     client.post("/club/contracts", data).then((r) => r.data),
 
-  updateContract: (id: string, data: CreateContractPayload): Promise<ContractItem> =>
+  updateContract: (id: string, data: UpdateContractPayload): Promise<ContractItem> =>
     client.put(`/club/contracts/${id}`, data).then((r) => r.data),
 
   deleteContract: (id: string): Promise<void> =>

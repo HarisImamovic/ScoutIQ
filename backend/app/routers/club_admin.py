@@ -421,6 +421,17 @@ def create_contract(
     if not player:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found in your club.")
 
+    existing = (
+        db.query(PlayerContract)
+        .filter(PlayerContract.player_id == pid, PlayerContract.club_id == club.id)
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This player already has a contract with your club.",
+        )
+
     contract = PlayerContract(
         player_id=pid,
         club_id=club.id,
