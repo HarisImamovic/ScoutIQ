@@ -2,6 +2,7 @@
 .claude/
 
 # Python
+backend/test.py
 __pycache__/
 *.pyc
 *.pyo

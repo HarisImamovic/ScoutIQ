@@ -107,16 +107,16 @@ const App = () => (
                   <Route path="club" element={<ClubDashboard />} />
                   <Route path="admin" element={<RoleRoute allowedRoles={["global_admin"]}><AdminDashboard /></RoleRoute>} />
 
-                  <Route path="players" element={<PlayersPage />} />
-                  <Route path="saved-prospects" element={<SavedProspectsPage />} />
-                  <Route path="reports" element={<ReportsPage />} />
-                  <Route path="ai" element={<AIAssistantPage />} />
+                  <Route path="players" element={<RoleRoute allowedRoles={["scout"]}><PlayersPage /></RoleRoute>} />
+                  <Route path="saved-prospects" element={<RoleRoute allowedRoles={["scout"]}><SavedProspectsPage /></RoleRoute>} />
+                  <Route path="reports" element={<RoleRoute allowedRoles={["scout"]}><ReportsPage /></RoleRoute>} />
+                  <Route path="ai" element={<RoleRoute allowedRoles={["scout"]}><AIAssistantPage /></RoleRoute>} />
 
-                  <Route path="highlights" element={<HighlightsPage />} />
+                  <Route path="highlights" element={<RoleRoute allowedRoles={["player"]}><HighlightsPage /></RoleRoute>} />
 
-                  <Route path="my-players" element={<MyPlayersPage />} />
-                  <Route path="club-reports" element={<ClubReportsPage />} />
-                  <Route path="salaries" element={<SalariesPage />} />
+                  <Route path="my-players" element={<RoleRoute allowedRoles={["club_admin"]}><MyPlayersPage /></RoleRoute>} />
+                  <Route path="club-reports" element={<RoleRoute allowedRoles={["club_admin"]}><ClubReportsPage /></RoleRoute>} />
+                  <Route path="salaries" element={<RoleRoute allowedRoles={["club_admin"]}><SalariesPage /></RoleRoute>} />
 
                   <Route path="admin/users" element={<RoleRoute allowedRoles={["global_admin"]}><AdminUsersPage /></RoleRoute>} />
                   <Route path="admin/clubs" element={<RoleRoute allowedRoles={["global_admin"]}><AdminClubsPage /></RoleRoute>} />

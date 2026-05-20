@@ -9,10 +9,12 @@ import { useState, useEffect } from "react";
 import { useRole } from "@/contexts/RoleContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { authApi } from "@/api/auth";
+import { telegramApi } from "@/api/telegram";
 import { toast } from "sonner";
 import axios from "axios";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  CheckCircle2, Eye, EyeOff, User, Mail, Lock, KeyRound, Shield,
+  CheckCircle2, Eye, EyeOff, User, Mail, Lock, KeyRound, Shield, Copy, ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -56,6 +58,138 @@ const roleLabels: Record<string, string> = {
   club_admin: "Club Admin",
   global_admin: "Global Admin",
 };
+
+// ── Telegram card ──────────────────────────────────────────────────────────
+function TelegramCard() {
+  const queryClient = useQueryClient();
+  const [linkData, setLinkData] = useState<{ code: string; bot_username: string; expires_at: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const { data: statusData, isLoading: statusLoading } = useQuery({
+    queryKey: ["telegramStatus"],
+    queryFn: telegramApi.getStatus,
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: telegramApi.generateCode,
+    onSuccess: (data) => {
+      setLinkData(data);
+    },
+    onError: () => {
+      toast.error("Failed to generate link code.");
+    },
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: telegramApi.disconnect,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["telegramStatus"] });
+      setLinkData(null);
+      toast.success("Telegram disconnected.");
+    },
+    onError: () => {
+      toast.error("Failed to disconnect Telegram.");
+    },
+  });
+
+  const handleCopy = () => {
+    if (!linkData) return;
+    navigator.clipboard.writeText(`/start ${linkData.code}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const connected = statusData?.connected ?? false;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg font-display flex items-center gap-2">
+          <svg className="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.17 13.67l-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.98.889z"/>
+          </svg>
+          Telegram Notifications
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {statusLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : connected ? (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">Connected</Badge>
+              <span className="text-sm text-muted-foreground">You will receive report notifications on Telegram.</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => disconnectMutation.mutate()}
+              disabled={disconnectMutation.isPending}
+              className="text-destructive border-destructive/30 hover:bg-destructive/10"
+            >
+              {disconnectMutation.isPending ? "Disconnecting…" : "Disconnect"}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Connect your Telegram account to receive notifications when your scouting reports are approved or rejected.
+            </p>
+            {!linkData ? (
+              <Button
+                variant="hero"
+                size="sm"
+                onClick={() => generateMutation.mutate()}
+                disabled={generateMutation.isPending}
+              >
+                {generateMutation.isPending ? "Generating…" : "Connect Telegram"}
+              </Button>
+            ) : (
+              <div className="space-y-3 p-4 rounded-lg border bg-muted/30">
+                <p className="text-sm font-medium">Follow these steps:</p>
+                <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                  <li>Click "Open in Telegram" below, or open your Telegram app manually</li>
+                  <li>Send the code to the bot (it will be pre-filled if you use the button)</li>
+                  <li>You will receive a confirmation message once connected</li>
+                </ol>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-background border rounded px-3 py-2 font-mono break-all">
+                    /start {linkData.code}
+                  </code>
+                  <Button variant="outline" size="sm" onClick={handleCopy} className="shrink-0 gap-1.5">
+                    <Copy className="w-3.5 h-3.5" />
+                    {copied ? "Copied!" : "Copy"}
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={`https://t.me/${linkData.bot_username}?start=${linkData.code}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Open in Telegram
+                  </a>
+                  <span className="text-xs text-muted-foreground">· Code expires in 15 minutes</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  onClick={() => generateMutation.mutate()}
+                  disabled={generateMutation.isPending}
+                >
+                  Generate new code
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 // ── Component ──────────────────────────────────────────────────────────────
 export default function SettingsPage() {
@@ -422,6 +556,9 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Telegram Notifications ───────────────────────────────────────── */}
+      {role === "scout" && <TelegramCard />}
 
       {/* ── Appearance ───────────────────────────────────────────────────── */}
       <Card>

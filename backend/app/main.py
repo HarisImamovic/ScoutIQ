@@ -8,9 +8,10 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
+from app.bot import start_bot
 from app.config import get_settings
 from app.limiter import limiter
-from app.routers import auth, admin, club_admin, scout, player, highlights, notifications
+from app.routers import auth, admin, club_admin, scout, player, highlights, notifications, ai, telegram
 from app.tasks import start_background_tasks
 
 settings = get_settings()
@@ -19,6 +20,7 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     start_background_tasks()
+    start_bot()
     yield
 
 
@@ -67,6 +69,8 @@ app.include_router(scout.router, prefix="/api/v1")
 app.include_router(player.router, prefix="/api/v1")
 app.include_router(highlights.router, prefix="/api/v1")
 app.include_router(notifications.router, prefix="/api/v1")
+app.include_router(ai.router, prefix="/api/v1")
+app.include_router(telegram.router, prefix="/api/v1")
 
 _static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 os.makedirs(os.path.join(_static_dir, "logos"), exist_ok=True)

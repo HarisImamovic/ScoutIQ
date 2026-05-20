@@ -28,6 +28,9 @@ class User(Base):
         nullable=False,
         default="active",
     )
+    telegram_chat_id = Column(String(50), nullable=True)
+    telegram_link_code = Column(String(100), nullable=True)
+    telegram_link_code_expires_at = Column(DateTime(timezone=True), nullable=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True),

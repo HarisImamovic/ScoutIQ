@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.database import get_db
@@ -39,6 +39,7 @@ from app.schemas.admin import (
 )
 from app.security import hash_password
 from app.utils.notifications import create_notification
+from app.utils.telegram import send_report_notification
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -1372,6 +1373,7 @@ def bulk_delete_reports(
 def update_report(
     report_id: str,
     body: UpdateReportRequest,
+    background_tasks: BackgroundTasks,
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
@@ -1410,10 +1412,19 @@ def update_report(
             f"Your report for {body.player_name.strip()} has been {body.status}.",
         )
 
+    scout = db.query(User).filter(User.id == report.scout_id).first()
     db.commit()
     db.refresh(report)
 
-    scout = db.query(User).filter(User.id == report.scout_id).first()
+    if body.status in ("approved", "rejected") and body.status != old_status:
+        if scout and scout.telegram_chat_id:
+            background_tasks.add_task(
+                send_report_notification,
+                scout.telegram_chat_id,
+                report.player_name,
+                body.status,
+            )
+
     return AdminReportItem(
         id=str(report.id),
         player_id=str(report.player_id) if report.player_id else None,
