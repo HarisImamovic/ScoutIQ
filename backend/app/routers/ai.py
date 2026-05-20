@@ -53,7 +53,7 @@ def _build_context(db: Session, current_user: User) -> str:
 
     reports = (
         db.query(ScoutingReport)
-        .filter(ScoutingReport.status == "published")
+        .filter(ScoutingReport.status == "published", ScoutingReport.scout_id == current_user.id)
         .order_by(ScoutingReport.created_at.desc())
         .limit(20)
         .all()
@@ -96,7 +96,7 @@ def _build_context(db: Session, current_user: User) -> str:
             parts.append("/".join(stats))
         lines.append(", ".join(parts))
 
-    lines.append("\nREPORTS:")
+    lines.append(f"\nREPORTS (scout: {current_user.first_name} {current_user.last_name}):")
     for r in reports:
         notes = (r.notes[:80] + "…") if r.notes and len(r.notes) > 80 else (r.notes or "")
         lines.append(
