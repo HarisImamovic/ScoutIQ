@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     gmail_user: str = ""
     gmail_app_password: str = ""
     frontend_url: str = "http://localhost:8080"
+    groq_api_key: str = ""
+    telegram_bot_token: str = ""
+    telegram_bot_username: str = ""
 
     @property
     def origins_list(self) -> list[str]:

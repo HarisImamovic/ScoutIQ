@@ -57,6 +57,7 @@ jobs:
           python -m app.migrations.add_player_stats_and_history
           python -m app.migrations.seed_demo_players
           python -m app.migrations.redesign_contracts
+          python -m app.migrations.add_telegram_fields
 
       - name: Start backend
         working-directory: backend

@@ -1,7 +1,7 @@
 import uuid as _uuid
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -28,6 +28,7 @@ from app.schemas.club_admin import (
 )
 from app.schemas.scout import ScoutPlayerItem, ScoutPlayersResponse
 from app.utils.notifications import create_notification
+from app.utils.telegram import send_report_notification
 
 router = APIRouter(prefix="/club", tags=["club_admin"])
 
@@ -326,6 +327,7 @@ def get_reports(
 def update_report_status(
     report_id: str,
     body: UpdateReportStatusRequest,
+    background_tasks: BackgroundTasks,
     admin: User = Depends(_require_club_admin),
     db: Session = Depends(get_db),
 ):
@@ -367,8 +369,17 @@ def update_report_status(
         f"Your report for {report.player_name} has been {body.status}.",
     )
 
+    scout = db.query(User).filter(User.id == report.scout_id).first()
     db.commit()
     db.refresh(report)
+
+    if scout and scout.telegram_chat_id:
+        background_tasks.add_task(
+            send_report_notification,
+            scout.telegram_chat_id,
+            report.player_name,
+            body.status,
+        )
 
     return ClubReportItem(
         id=str(report.id),
