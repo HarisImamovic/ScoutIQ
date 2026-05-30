@@ -86,7 +86,7 @@ export default function ReportsPage() {
     return () => clearTimeout(t);
   }, [playerSearch]);
 
-  const dropdownEnabled = debouncedPlayerSearch.length >= 2 || playerPosition !== "";
+  const dropdownEnabled = playerOpen || debouncedPlayerSearch.length >= 2 || playerPosition !== "";
 
   const { data: playerOptions = [], isFetching: playerFetching } = useQuery({
     queryKey: ["scout-player-dropdown", debouncedPlayerSearch, playerPosition],
@@ -516,11 +516,7 @@ export default function ReportsPage() {
                       onValueChange={setPlayerSearch}
                     />
                     <CommandList>
-                      {!dropdownEnabled ? (
-                        <div className="py-6 text-center text-sm text-muted-foreground px-4">
-                          Select a position or type to search…
-                        </div>
-                      ) : playerFetching ? (
+                      {playerFetching ? (
                         <div className="flex items-center justify-center py-6">
                           <Spinner size="sm" />
                         </div>
