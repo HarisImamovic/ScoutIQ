@@ -164,7 +164,7 @@ export default function MyPlayersPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="w-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="w-full"
                       onClick={() => setViewPlayer(p)}
                     >
                       <Eye className="w-4 h-4 mr-2" /> View Profile

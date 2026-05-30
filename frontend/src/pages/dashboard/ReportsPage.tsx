@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -50,7 +50,7 @@ const emptyForm = { player_id: "", player_name: "", position: "ST", rating: "80"
 type FormState = typeof emptyForm;
 type ModalMode = "create" | "edit" | "view" | null;
 
-function SortIcon({ column }: { column: any }) {
+function SortIcon({ column }: { column: { getIsSorted: () => false | "asc" | "desc" } }) {
   const sorted = column.getIsSorted();
   if (sorted === "asc") return <ArrowUp className="w-3.5 h-3.5 ml-1 inline" />;
   if (sorted === "desc") return <ArrowDown className="w-3.5 h-3.5 ml-1 inline" />;
@@ -67,6 +67,9 @@ export default function ReportsPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [playerOpen, setPlayerOpen] = useState(false);
+  const [playerSearch, setPlayerSearch] = useState("");
+  const [playerPosition, setPlayerPosition] = useState("");
+  const [debouncedPlayerSearch, setDebouncedPlayerSearch] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -78,10 +81,21 @@ export default function ReportsPage() {
     staleTime: 30_000,
   });
 
-  const { data: playerOptions = [] } = useQuery({
-    queryKey: ["scout-player-dropdown"],
-    queryFn: scoutApi.getPlayersForDropdown,
-    staleTime: 60_000,
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedPlayerSearch(playerSearch), 300);
+    return () => clearTimeout(t);
+  }, [playerSearch]);
+
+  const dropdownEnabled = debouncedPlayerSearch.length >= 2 || playerPosition !== "";
+
+  const { data: playerOptions = [], isFetching: playerFetching } = useQuery({
+    queryKey: ["scout-player-dropdown", debouncedPlayerSearch, playerPosition],
+    queryFn: () => scoutApi.getPlayersForDropdown({
+      search: debouncedPlayerSearch || undefined,
+      position: playerPosition || undefined,
+    }),
+    enabled: dropdownEnabled,
+    staleTime: 30_000,
   });
 
   const createMutation = useMutation({
@@ -123,14 +137,17 @@ export default function ReportsPage() {
     },
   });
 
-  const openCreate = () => { setForm(emptyForm); setActiveReport(null); setModalMode("create"); };
-  const openEdit = (r: ScoutReportItem) => {
+  const resetDropdown = useCallback(() => { setPlayerSearch(""); setPlayerPosition(""); setDebouncedPlayerSearch(""); }, []);
+
+  const openCreate = () => { setForm(emptyForm); setActiveReport(null); resetDropdown(); setModalMode("create"); };
+  const openEdit = useCallback((r: ScoutReportItem) => {
     const editableStatus = r.status === "draft" || r.status === "submitted" ? r.status : "draft";
     setForm({ player_id: r.player_id ?? "", player_name: r.player_name, position: r.position, rating: String(r.rating), status: editableStatus, notes: r.notes ?? "" });
     setActiveReport(r);
+    resetDropdown();
     setModalMode("edit");
-  };
-  const openView = (r: ScoutReportItem) => { setActiveReport(r); setModalMode("view"); };
+  }, [resetDropdown]);
+  const openView = useCallback((r: ScoutReportItem) => { setActiveReport(r); setModalMode("view"); }, []);
 
   const handleSave = () => {
     if (!isFormValid) return;
@@ -232,7 +249,7 @@ export default function ReportsPage() {
         );
       },
     }),
-  ], []);
+  ], [openEdit, openView, setDeleteId]);
 
   const table = useReactTable({
     data: filtered,
@@ -458,7 +475,7 @@ export default function ReportsPage() {
       </Dialog>
 
       {/* Create / Edit modal */}
-      <Dialog open={modalMode === "create" || modalMode === "edit"} onOpenChange={() => setModalMode(null)}>
+      <Dialog open={modalMode === "create" || modalMode === "edit"} onOpenChange={() => { setModalMode(null); resetDropdown(); }}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="font-display">
@@ -468,7 +485,7 @@ export default function ReportsPage() {
           <div className="space-y-4 py-2 overflow-y-auto max-h-[70vh]">
             <div className="space-y-2">
               <Label>Player *</Label>
-              <Popover open={playerOpen} onOpenChange={setPlayerOpen}>
+              <Popover open={playerOpen} onOpenChange={(open) => { setPlayerOpen(open); if (!open) setPlayerSearch(""); }}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" role="combobox" className="w-full justify-between bg-muted/50 font-normal">
                     {form.player_id ? form.player_name : "Select player…"}
@@ -476,26 +493,59 @@ export default function ReportsPage() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="p-0" style={{ width: "var(--radix-popover-trigger-width)" }}>
-                  <Command>
-                    <CommandInput placeholder="Search players…" />
+                  <div className="flex flex-wrap gap-1 p-2 border-b border-border">
+                    {POSITIONS.map((pos) => (
+                      <button
+                        key={pos}
+                        type="button"
+                        onClick={() => setPlayerPosition((prev) => (prev === pos ? "" : pos))}
+                        className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                          playerPosition === pos
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                        }`}
+                      >
+                        {pos}
+                      </button>
+                    ))}
+                  </div>
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Search players…"
+                      value={playerSearch}
+                      onValueChange={setPlayerSearch}
+                    />
                     <CommandList>
-                      <CommandEmpty>No players found.</CommandEmpty>
-                      <CommandGroup>
-                        {playerOptions.map((p) => (
-                          <CommandItem
-                            key={p.id}
-                            value={`${p.first_name} ${p.last_name} ${p.position}`}
-                            onSelect={() => {
-                              setForm(f => ({ ...f, player_id: p.id, player_name: `${p.first_name} ${p.last_name}`, position: p.position }));
-                              setPlayerOpen(false);
-                            }}
-                          >
-                            <Check className={`mr-2 h-4 w-4 ${form.player_id === p.id ? "opacity-100" : "opacity-0"}`} />
-                            <span>{p.first_name} {p.last_name}</span>
-                            <span className="ml-auto text-xs text-muted-foreground">{p.position}</span>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
+                      {!dropdownEnabled ? (
+                        <div className="py-6 text-center text-sm text-muted-foreground px-4">
+                          Select a position or type to search…
+                        </div>
+                      ) : playerFetching ? (
+                        <div className="flex items-center justify-center py-6">
+                          <Spinner size="sm" />
+                        </div>
+                      ) : playerOptions.length === 0 ? (
+                        <CommandEmpty>No players found.</CommandEmpty>
+                      ) : (
+                        <CommandGroup>
+                          {playerOptions.map((p) => (
+                            <CommandItem
+                              key={p.id}
+                              value={p.id}
+                              onSelect={() => {
+                                setForm(f => ({ ...f, player_id: p.id, player_name: `${p.first_name} ${p.last_name}`, position: p.position ?? f.position }));
+                                setPlayerOpen(false);
+                              }}
+                            >
+                              <Check className={`mr-2 h-4 w-4 ${form.player_id === p.id ? "opacity-100" : "opacity-0"}`} />
+                              <span>{p.first_name} {p.last_name}</span>
+                              <span className="ml-auto text-xs text-muted-foreground">
+                                {p.club_name ? `${p.position} · ${p.club_name}` : (p.position ?? "")}
+                              </span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
                     </CommandList>
                   </Command>
                 </PopoverContent>

@@ -99,6 +99,7 @@ export interface PlayerDropdownItem {
   first_name: string;
   last_name: string;
   position: string | null;
+  club_name: string | null;
 }
 
 export interface CreateReportPayload {
@@ -116,8 +117,8 @@ export const scoutApi = {
   getDashboard: (): Promise<ScoutDashboardResponse> =>
     client.get("/scout/dashboard").then((r) => r.data),
 
-  getPlayersForDropdown: (): Promise<PlayerDropdownItem[]> =>
-    client.get("/scout/players/dropdown").then((r) => r.data),
+  getPlayersForDropdown: (params?: { search?: string; position?: string }): Promise<PlayerDropdownItem[]> =>
+    client.get("/scout/players/dropdown", { params }).then((r) => r.data),
 
   getPlayers: (params: PlayersQueryParams = {}): Promise<ScoutPlayersResponse> =>
     client.get("/scout/players", { params }).then((r) => r.data),
