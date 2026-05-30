@@ -148,15 +148,34 @@ def get_dashboard(
 def players_dropdown(
     _: User = Depends(_require_scout),
     db: Session = Depends(get_db),
+    search: str = Query("", max_length=100),
+    position: str = Query("", max_length=20),
 ):
-    players = (
-        db.query(Player)
-        .order_by(Player.first_name, Player.last_name)
+    query = (
+        db.query(Player, Club.name.label("club_name"))
+        .outerjoin(Club, Player.club_id == Club.id)
+    )
+    if search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter(
+            (Player.first_name + " " + Player.last_name).ilike(term)
+        )
+    if position.strip():
+        query = query.filter(Player.position == position.strip().upper())
+    rows = (
+        query.order_by(Player.first_name, Player.last_name)
+        .limit(20)
         .all()
     )
     return [
-        PlayerDropdownItem(id=str(p.id), first_name=p.first_name, last_name=p.last_name, position=p.position)
-        for p in players
+        PlayerDropdownItem(
+            id=str(p.id),
+            first_name=p.first_name,
+            last_name=p.last_name,
+            position=p.position,
+            club_name=club_name,
+        )
+        for p, club_name in rows
     ]
 
 

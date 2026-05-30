@@ -129,3 +129,4 @@ class PlayerDropdownItem(BaseModel):
     first_name: str
     last_name: str
     position: Optional[str]
+    club_name: Optional[str]
