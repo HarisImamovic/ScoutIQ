@@ -44,6 +44,7 @@ export interface PlayerDashboardData {
   age: number | null;
   market_value: number | null;
   status: string;
+  availability_status: string;
   stats: PlayerStats | null;
   market_value_history: MarketValuePoint[];
   scouting_interest: ScoutInterestItem[];
@@ -78,4 +79,7 @@ export const playerApi = {
 
   deleteHighlight: (id: string): Promise<void> =>
     client.delete(`/player/highlights/${id}`).then(() => undefined),
+
+  updateAvailability: (availabilityStatus: string): Promise<void> =>
+    client.patch("/player/availability", { availability_status: availabilityStatus }).then(() => undefined),
 };

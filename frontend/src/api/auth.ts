@@ -15,7 +15,6 @@ export interface LoginPayload {
 
 export interface TokenPair {
   access_token: string;
-  refresh_token: string;
   token_type: string;
 }
 
@@ -46,11 +45,11 @@ export const authApi = {
   login: (payload: LoginPayload) =>
     client.post<TokenPair>("/auth/login", payload),
 
-  logout: (refreshToken: string) =>
-    client.post("/auth/logout", { refresh_token: refreshToken }),
+  logout: () =>
+    client.post("/auth/logout"),
 
-  refresh: (refreshToken: string) =>
-    client.post<TokenPair>("/auth/refresh", { refresh_token: refreshToken }),
+  refresh: () =>
+    client.post<TokenPair>("/auth/refresh"),
 
   me: () => client.get<AuthUser>("/auth/me"),
 

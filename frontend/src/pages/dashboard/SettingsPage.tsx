@@ -9,6 +9,7 @@ import { useState, useEffect } from "react";
 import { useRole } from "@/contexts/RoleContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { authApi } from "@/api/auth";
+import { playerApi } from "@/api/player";
 import { telegramApi } from "@/api/telegram";
 import { toast } from "sonner";
 import axios from "axios";
@@ -283,12 +284,39 @@ export default function SettingsPage() {
   };
 
   // ── Player availability ──────────────────────────────────────────────────
-  const [playerStatus, setPlayerStatus] = useState<PlayerStatus>("under_contract");
-  const [availSaved, setAvailSaved] = useState(false);
+  const [playerStatus, setPlayerStatus] = useState<PlayerStatus>("free_agent");
+
+  const { data: playerData } = useQuery({
+    queryKey: ["player-dashboard"],
+    queryFn: playerApi.getDashboard,
+    enabled: role === "player",
+  });
+
+  const hasClub = playerData?.has_club ?? false;
+
+  useEffect(() => {
+    if (playerData?.availability_status) {
+      setPlayerStatus(playerData.availability_status as PlayerStatus);
+    }
+  }, [playerData?.availability_status]);
+
+  const availMutation = useMutation({
+    mutationFn: (s: PlayerStatus) => playerApi.updateAvailability(s),
+    onSuccess: () => {
+      toast.success("Availability status updated successfully.");
+    },
+    onError: (err) => {
+      if (axios.isAxiosError(err)) {
+        const detail = err.response?.data?.detail;
+        toast.error(typeof detail === "string" ? detail : "Failed to update status.");
+      } else {
+        toast.error("Failed to update status.");
+      }
+    },
+  });
 
   const handleAvailSave = () => {
-    setAvailSaved(true);
-    setTimeout(() => setAvailSaved(false), 2000);
+    availMutation.mutate(playerStatus);
   };
 
   // ── Member since ─────────────────────────────────────────────────────────
@@ -533,10 +561,15 @@ export default function SettingsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="free_agent">Free Agent</SelectItem>
-                  <SelectItem value="under_contract">Under Contract</SelectItem>
+                  <SelectItem value="under_contract" disabled={!hasClub}>Under Contract</SelectItem>
                   <SelectItem value="talks_in_progress">Talks In Progress</SelectItem>
                 </SelectContent>
               </Select>
+              {!hasClub && (
+                <p className="text-xs text-muted-foreground">
+                  "Under Contract" is only available once you are assigned to a club.
+                </p>
+              )}
             </div>
             <div className={`flex items-start gap-3 p-3 rounded-lg border ${statusConfig[playerStatus].color}`}>
               <div className="flex-1">
@@ -546,12 +579,8 @@ export default function SettingsPage() {
                 <p className="text-sm">{statusConfig[playerStatus].description}</p>
               </div>
             </div>
-            <Button variant="hero" size="sm" onClick={handleAvailSave}>
-              {availSaved ? (
-                <><CheckCircle2 className="w-4 h-4 mr-2" /> Saved</>
-              ) : (
-                "Update Status"
-              )}
+            <Button variant="hero" size="sm" onClick={handleAvailSave} disabled={availMutation.isPending}>
+              {availMutation.isPending ? "Saving…" : "Update Status"}
             </Button>
           </CardContent>
         </Card>

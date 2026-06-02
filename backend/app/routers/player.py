@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID as PyUUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -17,6 +17,7 @@ from app.schemas.player import (
     PlayerDashboardResponse,
     PlayerStats,
     ScoutInterestItem,
+    UpdateAvailabilityRequest,
 )
 
 router = APIRouter(prefix="/player", tags=["Player"])
@@ -42,6 +43,7 @@ def get_player_dashboard(
             age=None,
             market_value=None,
             status="active",
+            availability_status="free_agent",
             stats=None,
             market_value_history=[],
             scouting_interest=[],
@@ -128,9 +130,28 @@ def get_player_dashboard(
         age=age,
         market_value=player.market_value,
         status=player.status,
+        availability_status=player.availability_status,
         stats=stats,
         market_value_history=[
             MarketValuePoint(value=h.value, recorded_at=h.recorded_at) for h in mv_history
         ],
         scouting_interest=scouting_interest,
     )
+
+
+@router.patch("/availability", status_code=status.HTTP_204_NO_CONTENT)
+def update_availability(
+    payload: UpdateAvailabilityRequest,
+    current_user: User = Depends(require_role("player")),
+    db: Session = Depends(get_db),
+):
+    player = db.query(Player).filter(Player.user_id == current_user.id).first()
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player profile not found.")
+    if payload.availability_status == "under_contract" and not player.club_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot be Under Contract without being assigned to a club.",
+        )
+    player.availability_status = payload.availability_status
+    db.commit()

@@ -316,15 +316,17 @@ def create_user(
 
     try:
         db.add(new_user)
+        db.flush()
         if body.role == "player":
             db.add(Player(
+                user_id=new_user.id,
                 first_name=body.first_name.strip(),
                 last_name=body.last_name.strip(),
                 position=body.position.strip().upper(),
                 club_id=club_uuid,
+                availability_status="under_contract" if club_uuid else "free_agent",
                 status="active",
             ))
-        db.flush()
 
         admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
         for admin in admins:
@@ -654,6 +656,7 @@ def create_player(
         nationality=body.nationality.strip() if body.nationality else None,
         date_of_birth=body.date_of_birth,
         club_id=club_uuid,
+        availability_status="under_contract" if club_uuid else "free_agent",
         market_value=body.market_value,
         status=body.status,
     )
@@ -836,6 +839,7 @@ async def bulk_import_players(
             nationality=nationality or None,
             date_of_birth=dob,
             club_id=club_obj.id if club_obj else None,
+            availability_status="under_contract" if club_obj else "free_agent",
             market_value=market_value,
             status=status_raw,
         )
@@ -1033,6 +1037,7 @@ def update_user(
         player.club_id = club_uuid
         player.first_name = body.first_name.strip()
         player.last_name = body.last_name.strip()
+        player.availability_status = "under_contract" if club_uuid else "free_agent"
 
     db.commit()
     db.refresh(user)
@@ -1290,6 +1295,7 @@ def update_player(
     player.nationality = body.nationality.strip() if body.nationality else None
     player.date_of_birth = body.date_of_birth
     player.club_id = club_uuid
+    player.availability_status = "under_contract" if club_uuid else "free_agent"
     player.market_value = body.market_value
     player.status = body.status
 

@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from "react
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { authApi, AuthUser, RegisterPayload } from "@/api/auth";
-import { setAccessToken, setStoredRefreshToken, getStoredRefreshToken, clearTokens } from "@/api/client";
+import { setAccessToken, clearTokens } from "@/api/client";
 import { useRole } from "@/contexts/RoleContext";
 import type { UserRole } from "@/contexts/RoleContext";
 import { toast } from "sonner";
@@ -29,17 +29,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const restoreSession = async () => {
-      const storedRefresh = getStoredRefreshToken();
-      if (!storedRefresh) {
-        setIsLoading(false);
-        return;
-      }
       try {
-        // Access token is in-memory only and lost on page reload.
-        // Proactively exchange the refresh token first, then fetch the user.
-        const { data: tokens } = await authApi.refresh(storedRefresh);
+        const { data: tokens } = await authApi.refresh();
         setAccessToken(tokens.access_token);
-        setStoredRefreshToken(tokens.refresh_token);
         const { data: me } = await authApi.me();
         setUser(me);
         setRole(me.role as UserRole);
@@ -56,7 +48,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
     const { data: tokens } = await authApi.login({ email, password });
     setAccessToken(tokens.access_token);
-    setStoredRefreshToken(tokens.refresh_token);
     const { data: me } = await authApi.me();
     setUser(me);
     setRole(me.role as UserRole);
@@ -66,7 +57,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
     const { data: tokens } = await authApi.googleCallback(code, codeVerifier);
     setAccessToken(tokens.access_token);
-    setStoredRefreshToken(tokens.refresh_token);
     const { data: me } = await authApi.me();
     setUser(me);
     setRole(me.role as UserRole);
@@ -75,10 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    const storedRefresh = getStoredRefreshToken();
-    if (storedRefresh) {
-      try { await authApi.logout(storedRefresh); } catch {}
-    }
+    try { await authApi.logout(); } catch {}
     setUser(null);
     clearTokens();
     queryClient.clear();

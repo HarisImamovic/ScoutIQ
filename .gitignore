@@ -1,5 +1,6 @@
 # Claude Code — entire folder is local only, never commit
 .claude/
+CLAUDE.md
 
 # Python
 backend/test.py

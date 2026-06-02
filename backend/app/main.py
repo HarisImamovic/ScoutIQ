@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -15,6 +16,7 @@ from app.routers import auth, admin, club_admin, scout, player, highlights, noti
 from app.tasks import start_background_tasks
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -27,9 +29,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="ScoutIQ API",
     version="1.0.0",
-    docs_url="/api/docs",
+    docs_url="/api/docs" if settings.debug else None,
     redoc_url=None,
-    openapi_url="/api/openapi.json",
+    openapi_url="/api/openapi.json" if settings.debug else None,
     lifespan=lifespan,
 )
 
@@ -56,6 +58,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 async def unhandled_exception_handler(request: Request, exc: Exception):
     if isinstance(exc, HTTPException):
         return await http_exception_handler(request, exc)
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=500,
         content={"detail": "An unexpected error occurred."},

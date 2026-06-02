@@ -3,13 +3,14 @@ from datetime import date
 from typing import Optional
 
 from groq import Groq
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
 from app.database import get_db
 from app.dependencies import require_role
+from app.limiter import limiter
 from app.models.player import Player
 from app.models.report import ScoutingReport
 from app.models.saved_prospect import SavedProspect
@@ -28,7 +29,7 @@ SYSTEM_PROMPT = (
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., max_length=2000)
 
 
 class ChatResponse(BaseModel):
@@ -119,7 +120,9 @@ def _build_context(db: Session, current_user: User) -> str:
 
 
 @router.post("/chat", response_model=ChatResponse)
+@limiter.limit("20/minute")
 def chat(
+    request: Request,
     body: ChatRequest,
     current_user: User = Depends(require_role("scout")),
     db: Session = Depends(get_db),
