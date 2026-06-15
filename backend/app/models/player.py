@@ -32,6 +32,7 @@ class Player(Base):
     )
     market_value = Column(Integer, nullable=True)
     status = Column(String(20), nullable=False, default="active")
+    availability_status = Column(String(20), nullable=False, default="free_agent")
     minutes_played = Column(Integer, nullable=True)
     goals = Column(Integer, nullable=True)
     assists = Column(Integer, nullable=True)

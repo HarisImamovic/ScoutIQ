@@ -36,6 +36,20 @@ class ScoutInterestItem(BaseModel):
     timestamp: datetime
 
 
+_VALID_AVAILABILITY = {"free_agent", "under_contract", "talks_in_progress"}
+
+
+class UpdateAvailabilityRequest(BaseModel):
+    availability_status: str
+
+    @field_validator("availability_status")
+    @classmethod
+    def check_availability(cls, v: str) -> str:
+        if v not in _VALID_AVAILABILITY:
+            raise ValueError(f"availability_status must be one of: {', '.join(sorted(_VALID_AVAILABILITY))}.")
+        return v
+
+
 class HighlightCreate(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
     title: Optional[str] = Field(None, max_length=200)
@@ -73,6 +87,7 @@ class PlayerDashboardResponse(BaseModel):
     age: Optional[int]
     market_value: Optional[int]
     status: str
+    availability_status: str
     stats: Optional[PlayerStats]
     market_value_history: list[MarketValuePoint]
     scouting_interest: list[ScoutInterestItem]

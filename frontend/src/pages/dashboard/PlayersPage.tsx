@@ -30,16 +30,10 @@ import type { HighlightItem } from "@/api/player";
 import { clubAdminApi } from "@/api/clubAdmin";
 import { useAuth } from "@/contexts/AuthContext";
 import { ClubLogo } from "@/components/ClubLogo";
+import { formatMarketValue } from "@/lib/formatters";
 
 const PAGE_SIZE = 6;
 const POSITIONS = ["GK", "CB", "LB", "RB", "CDM", "CM", "AM", "LW", "RW", "CF", "ST"];
-
-function formatMarketValue(v: number | null): string {
-  if (v == null) return "—";
-  if (v >= 1_000_000) return `€${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `€${(v / 1_000).toFixed(0)}K`;
-  return `€${v}`;
-}
 
 export default function PlayersPage() {
   const qc = useQueryClient();

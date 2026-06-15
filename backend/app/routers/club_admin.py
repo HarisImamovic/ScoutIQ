@@ -1,5 +1,4 @@
-import uuid as _uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func
@@ -27,19 +26,14 @@ from app.schemas.club_admin import (
     UpdateReportStatusRequest,
 )
 from app.schemas.scout import ScoutPlayerItem, ScoutPlayersResponse
+from app.utils.age import calc_age
 from app.utils.notifications import create_notification
 from app.utils.telegram import send_report_notification
+from app.utils.uuid import parse_uuid
 
 router = APIRouter(prefix="/club", tags=["club_admin"])
 
 _require_club_admin = require_role("club_admin")
-
-
-def _calc_age(dob) -> int | None:
-    if not dob:
-        return None
-    today = date.today()
-    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
 
 def _get_club(admin: User, db: Session) -> Club:
@@ -211,7 +205,7 @@ def get_squad(
             first_name=p.first_name,
             last_name=p.last_name,
             position=p.position,
-            age=_calc_age(p.date_of_birth),
+            age=calc_age(p.date_of_birth),
             nationality=p.nationality,
             market_value=p.market_value,
             status=p.status,
@@ -260,7 +254,7 @@ def browse_players(
             first_name=p.first_name,
             last_name=p.last_name,
             position=p.position,
-            age=_calc_age(p.date_of_birth),
+            age=calc_age(p.date_of_birth),
             nationality=p.nationality,
             club_id=str(p.club_id) if p.club_id else None,
             club_name=club_name,
@@ -333,10 +327,7 @@ def update_report_status(
 ):
     club = _get_club(admin, db)
 
-    try:
-        rid = _uuid.UUID(report_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid report_id.")
+    rid = parse_uuid(report_id, "report_id")
 
     scout_ids = _get_scout_ids(club.id, db)
 
@@ -423,10 +414,7 @@ def create_contract(
 ):
     club = _get_club(admin, db)
 
-    try:
-        pid = _uuid.UUID(body.player_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid player_id.")
+    pid = parse_uuid(body.player_id, "player_id")
 
     player = db.query(Player).filter(Player.id == pid, Player.club_id == club.id).first()
     if not player:
@@ -466,10 +454,7 @@ def update_contract(
 ):
     club = _get_club(admin, db)
 
-    try:
-        cid = _uuid.UUID(contract_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid contract_id.")
+    cid = parse_uuid(contract_id, "contract_id")
 
     row = (
         db.query(PlayerContract, Player)
@@ -499,10 +484,7 @@ def delete_contract(
 ):
     club = _get_club(admin, db)
 
-    try:
-        cid = _uuid.UUID(contract_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid contract_id.")
+    cid = parse_uuid(contract_id, "contract_id")
 
     contract = (
         db.query(PlayerContract)
@@ -517,18 +499,12 @@ def delete_contract(
 
 
 def _contract_to_item(c: PlayerContract, p: Player) -> ContractItem:
-    age = None
-    if p.date_of_birth:
-        today = date.today()
-        age = today.year - p.date_of_birth.year - (
-            (today.month, today.day) < (p.date_of_birth.month, p.date_of_birth.day)
-        )
     return ContractItem(
         id=str(c.id),
         player_id=str(c.player_id),
         player_name=f"{p.first_name} {p.last_name}",
         position=p.position,
-        age=age,
+        age=calc_age(p.date_of_birth),
         club_id=str(c.club_id),
         weekly_salary=c.weekly_salary,
         start_date=c.start_date,

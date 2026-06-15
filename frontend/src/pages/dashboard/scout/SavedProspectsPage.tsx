@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { scoutApi, ScoutSavedProspectItem } from "@/api/scout";
 import { ClubLogo } from "@/components/ClubLogo";
+import { formatMarketValue } from "@/lib/formatters";
 
 const POSITIONS = ["All", "GK", "CB", "LB", "RB", "CDM", "CM", "AM", "LW", "RW", "CF", "ST"];
 
@@ -36,13 +37,6 @@ function SortIcon({ direction }: { direction: "asc" | "desc" | false }) {
   if (!direction) return <ArrowUpDown className="w-3.5 h-3.5 ml-1 opacity-40" />;
   if (direction === "asc") return <ArrowUp className="w-3.5 h-3.5 ml-1 text-primary" />;
   return <ArrowDown className="w-3.5 h-3.5 ml-1 text-primary" />;
-}
-
-function formatMarketValue(v: number | null): string {
-  if (v == null) return "—";
-  if (v >= 1_000_000) return `€${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `€${(v / 1_000).toFixed(0)}K`;
-  return `€${v}`;
 }
 
 export default function SavedProspectsPage() {

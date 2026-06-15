@@ -4,7 +4,7 @@ import hashlib
 import secrets
 
 import requests as http_requests
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy.orm import Session
@@ -17,18 +17,17 @@ from app.limiter import limiter
 from app.models.password_reset_token import PasswordResetToken
 from app.models.user import RefreshToken, User
 from app.schemas.auth import (
+    AccessTokenResponse,
     ChangePasswordRequest,
     ForgotPasswordRequest,
     GoogleCallbackRequest,
     LoginRequest,
-    RefreshRequest,
     RegisterRequest,
     ResetPasswordRequest,
-    TokenPairResponse,
     UpdateProfileRequest,
 )
 from app.schemas.user import UserResponse
-from app.utils.notifications import create_notification
+from app.utils.notifications import create_notification, notify_global_admins
 from app.security import (
     create_access_token,
     create_refresh_token,
@@ -39,6 +38,60 @@ from app.security import (
 
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+_COOKIE_NAME = "refresh_token"
+_COOKIE_PATH = "/api/v1/auth"
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=not settings.debug,
+        samesite="lax",
+        max_age=settings.refresh_token_expire_days * 86400,
+        path=_COOKIE_PATH,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=_COOKIE_NAME,
+        path=_COOKIE_PATH,
+        secure=not settings.debug,
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _assert_account_active(user: User) -> None:
+    if user.status == "suspended":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been suspended.",
+        )
+    if user.status == "inactive":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is inactive.",
+        )
+
+
+def _issue_tokens(user: User, db: Session, response: Response) -> AccessTokenResponse:
+    access_token = create_access_token(subject=str(user.id), role=user.role)
+    raw_refresh, refresh_hash = create_refresh_token()
+    db.add(
+        RefreshToken(
+            user_id=user.id,
+            token_hash=refresh_hash,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days),
+        )
+    )
+    user.last_login_at = datetime.now(timezone.utc)
+    db.commit()
+    _set_refresh_cookie(response, raw_refresh)
+    return AccessTokenResponse(access_token=access_token)
 
 
 @router.post(
@@ -72,24 +125,21 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
             status="active",
         ))
 
-    admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
-    for admin in admins:
-        create_notification(
-            db,
-            admin.id,
-            "profile",
-            "New User Registered",
-            f"{payload.first_name} {payload.last_name} registered as {payload.role}.",
-        )
+    notify_global_admins(
+        db,
+        "profile",
+        "New User Registered",
+        f"{payload.first_name} {payload.last_name} registered as {payload.role}.",
+    )
 
     db.commit()
     db.refresh(user)
     return user
 
 
-@router.post("/login", response_model=TokenPairResponse)
+@router.post("/login", response_model=AccessTokenResponse)
 @limiter.limit("10/minute")
-def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)):
+def login(request: Request, payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
     user = (
         db.query(User)
         .filter(User.email == payload.email, User.deleted_at.is_(None))
@@ -102,39 +152,20 @@ def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)
             detail="Invalid email or password.",
         )
 
-    if user.status == "suspended":
+    _assert_account_active(user)
+    return _issue_tokens(user, db, response)
+
+
+@router.post("/refresh", response_model=AccessTokenResponse)
+def refresh(request: Request, response: Response, db: Session = Depends(get_db)):
+    raw_refresh = request.cookies.get(_COOKIE_NAME)
+    if not raw_refresh:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account has been suspended.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No refresh token.",
         )
 
-    if user.status == "inactive":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account is inactive.",
-        )
-
-    access_token = create_access_token(subject=str(user.id), role=user.role)
-    raw_refresh, refresh_hash = create_refresh_token()
-
-    db.add(
-        RefreshToken(
-            user_id=user.id,
-            token_hash=refresh_hash,
-            expires_at=datetime.now(timezone.utc)
-            + timedelta(days=settings.refresh_token_expire_days),
-        )
-    )
-
-    user.last_login_at = datetime.now(timezone.utc)
-    db.commit()
-
-    return TokenPairResponse(access_token=access_token, refresh_token=raw_refresh)
-
-
-@router.post("/refresh", response_model=TokenPairResponse)
-def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
-    token_hash = hash_refresh_token(payload.refresh_token)
+    token_hash = hash_refresh_token(raw_refresh)
 
     record = (
         db.query(RefreshToken)
@@ -146,6 +177,7 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     )
 
     if not record:
+        _clear_refresh_cookie(response)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token is invalid or has already been used.",
@@ -154,6 +186,7 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     if record.expires_at < datetime.now(timezone.utc):
         record.revoked = True
         db.commit()
+        _clear_refresh_cookie(response)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token has expired. Please log in again.",
@@ -166,6 +199,7 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     )
 
     if not user or user.status != "active":
+        _clear_refresh_cookie(response)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or account is inactive.",
@@ -186,23 +220,27 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     )
     db.commit()
 
-    return TokenPairResponse(access_token=new_access, refresh_token=new_raw_refresh)
+    _set_refresh_cookie(response, new_raw_refresh)
+    return AccessTokenResponse(access_token=new_access)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(payload: RefreshRequest, db: Session = Depends(get_db)):
-    token_hash = hash_refresh_token(payload.refresh_token)
-    record = (
-        db.query(RefreshToken)
-        .filter(
-            RefreshToken.token_hash == token_hash,
-            RefreshToken.revoked.is_(False),
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+    raw_refresh = request.cookies.get(_COOKIE_NAME)
+    if raw_refresh:
+        token_hash = hash_refresh_token(raw_refresh)
+        record = (
+            db.query(RefreshToken)
+            .filter(
+                RefreshToken.token_hash == token_hash,
+                RefreshToken.revoked.is_(False),
+            )
+            .first()
         )
-        .first()
-    )
-    if record:
-        record.revoked = True
-        db.commit()
+        if record:
+            record.revoked = True
+            db.commit()
+    _clear_refresh_cookie(response)
 
 
 @router.get("/me", response_model=UserResponse)
@@ -358,11 +396,12 @@ def reset_password(
     db.commit()
 
 
-@router.post("/google/callback", response_model=TokenPairResponse)
+@router.post("/google/callback", response_model=AccessTokenResponse)
 @limiter.limit("20/minute")
 def google_callback(
     request: Request,
     payload: GoogleCallbackRequest,
+    response: Response,
     db: Session = Depends(get_db),
 ):
     if not settings.google_client_id or not settings.google_client_secret:
@@ -452,42 +491,15 @@ def google_callback(
             db.add(user)
             db.flush()
 
-            admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
-            for admin in admins:
-                create_notification(
-                    db,
-                    admin.id,
-                    "profile",
-                    "New User Registered",
-                    f"{first_name} {last_name} registered via Google as scout.",
-                )
+            notify_global_admins(
+                db,
+                "profile",
+                "New User Registered",
+                f"{first_name} {last_name} registered via Google as scout.",
+            )
 
             db.commit()
             db.refresh(user)
 
-    if user.status == "suspended":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account has been suspended.",
-        )
-    if user.status == "inactive":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account is inactive.",
-        )
-
-    access_token = create_access_token(subject=str(user.id), role=user.role)
-    raw_refresh, refresh_hash = create_refresh_token()
-
-    db.add(
-        RefreshToken(
-            user_id=user.id,
-            token_hash=refresh_hash,
-            expires_at=datetime.now(timezone.utc)
-            + timedelta(days=settings.refresh_token_expire_days),
-        )
-    )
-    user.last_login_at = datetime.now(timezone.utc)
-    db.commit()
-
-    return TokenPairResponse(access_token=access_token, refresh_token=raw_refresh)
+    _assert_account_active(user)
+    return _issue_tokens(user, db, response)

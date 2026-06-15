@@ -1,5 +1,3 @@
-import uuid as _uuid
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -10,7 +8,8 @@ from app.models.player_highlight import PlayerHighlight
 from app.models.user import User
 from app.schemas.player import HighlightCreate, HighlightResponse, HighlightStatusUpdate
 from app.utils.embed import resolve_embed_url
-from app.utils.notifications import create_notification
+from app.utils.notifications import create_notification, notify_global_admins
+from app.utils.uuid import parse_uuid
 
 router = APIRouter(tags=["highlights"])
 
@@ -82,22 +81,19 @@ def add_highlight(
     db.flush()
 
     player_name = f"{current_user.first_name} {current_user.last_name}"
-    admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
-    for admin in admins:
-        create_notification(
-            db,
-            admin.id,
-            "star",
-            "New Highlight Posted",
-            f"{player_name} posted a new highlight{': ' + title if title else ''}.",
-            action_data={
-                "highlight_id": str(highlight.id),
-                "embed_url": highlight.embed_url,
-                "url": highlight.url,
-                "title": title,
-                "player_name": player_name,
-            },
-        )
+    notify_global_admins(
+        db,
+        "star",
+        "New Highlight Posted",
+        f"{player_name} posted a new highlight{': ' + title if title else ''}.",
+        action_data={
+            "highlight_id": str(highlight.id),
+            "embed_url": highlight.embed_url,
+            "url": highlight.url,
+            "title": title,
+            "player_name": player_name,
+        },
+    )
 
     db.commit()
     db.refresh(highlight)
@@ -111,13 +107,7 @@ def update_highlight(
     current_user: User = Depends(require_role("player")),
     db: Session = Depends(get_db),
 ):
-    try:
-        hid = _uuid.UUID(highlight_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Invalid highlight_id.",
-        )
+    hid = parse_uuid(highlight_id, "highlight_id")
 
     player = db.query(Player).filter(Player.user_id == current_user.id).first()
     if not player:
@@ -155,22 +145,19 @@ def update_highlight(
     highlight.status = "pending"
 
     player_name = f"{current_user.first_name} {current_user.last_name}"
-    admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
-    for admin in admins:
-        create_notification(
-            db,
-            admin.id,
-            "star",
-            "Highlight Updated",
-            f"{player_name} updated a highlight{': ' + title if title else ''}.",
-            action_data={
-                "highlight_id": str(highlight.id),
-                "embed_url": embed_url,
-                "url": highlight.url,
-                "title": title,
-                "player_name": player_name,
-            },
-        )
+    notify_global_admins(
+        db,
+        "star",
+        "Highlight Updated",
+        f"{player_name} updated a highlight{': ' + title if title else ''}.",
+        action_data={
+            "highlight_id": str(highlight.id),
+            "embed_url": embed_url,
+            "url": highlight.url,
+            "title": title,
+            "player_name": player_name,
+        },
+    )
 
     db.commit()
     db.refresh(highlight)
@@ -183,13 +170,7 @@ def delete_highlight(
     current_user: User = Depends(require_role("player")),
     db: Session = Depends(get_db),
 ):
-    try:
-        hid = _uuid.UUID(highlight_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Invalid highlight_id.",
-        )
+    hid = parse_uuid(highlight_id, "highlight_id")
 
     player = db.query(Player).filter(Player.user_id == current_user.id).first()
     if not player:
@@ -222,13 +203,7 @@ def get_player_highlights(
     current_user: User = Depends(require_role("scout", "club_admin", "global_admin")),
     db: Session = Depends(get_db),
 ):
-    try:
-        pid = _uuid.UUID(player_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Invalid player_id.",
-        )
+    pid = parse_uuid(player_id, "player_id")
 
     player = (
         db.query(Player)
@@ -257,13 +232,7 @@ def update_highlight_status(
     current_admin: User = Depends(require_role("global_admin")),
     db: Session = Depends(get_db),
 ):
-    try:
-        hid = _uuid.UUID(highlight_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Invalid highlight_id.",
-        )
+    hid = parse_uuid(highlight_id, "highlight_id")
 
     highlight = db.query(PlayerHighlight).filter(PlayerHighlight.id == hid).first()
     if not highlight:
