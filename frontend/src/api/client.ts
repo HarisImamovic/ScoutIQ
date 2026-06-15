@@ -10,6 +10,10 @@ export function setAccessToken(token: string | null) {
   _accessToken = token;
 }
 
+export function getAccessToken(): string | null {
+  return _accessToken;
+}
+
 export function clearTokens() {
   setAccessToken(null);
 }
