@@ -38,8 +38,9 @@ from app.schemas.admin import (
     UpdateUserRequest,
 )
 from app.security import hash_password
-from app.utils.notifications import create_notification
+from app.utils.notifications import create_notification, notify_global_admins
 from app.utils.telegram import send_report_notification
+from app.utils.uuid import parse_uuid
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -124,10 +125,7 @@ def update_league(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    try:
-        lid = _uuid.UUID(league_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid league_id format.")
+    lid = parse_uuid(league_id, "league_id format")
 
     league = db.query(League).filter(League.id == lid).first()
     if not league:
@@ -160,10 +158,7 @@ def delete_league(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ) -> None:
-    try:
-        lid = _uuid.UUID(league_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid league_id format.")
+    lid = parse_uuid(league_id, "league_id format")
 
     league = db.query(League).filter(League.id == lid).first()
     if not league:
@@ -182,10 +177,7 @@ async def upload_league_logo(
 ):
     import os
 
-    try:
-        lid = _uuid.UUID(league_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid league_id format.")
+    lid = parse_uuid(league_id, "league_id format")
 
     league = db.query(League).filter(League.id == lid).first()
     if not league:
@@ -290,10 +282,7 @@ def create_user(
     club_uuid = None
     club = None
     if body.club_id:
-        try:
-            club_uuid = _uuid.UUID(body.club_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid club_id format.")
+        club_uuid = parse_uuid(body.club_id, "club_id format")
         club = db.query(Club).filter(Club.id == club_uuid, Club.deleted_at.is_(None)).first()
         if not club:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
@@ -328,15 +317,12 @@ def create_user(
                 status="active",
             ))
 
-        admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
-        for admin in admins:
-            create_notification(
-                db,
-                admin.id,
-                "profile",
-                "New User Created",
-                f"{body.first_name.strip()} {body.last_name.strip()} was created as {body.role}.",
-            )
+        notify_global_admins(
+            db,
+            "profile",
+            "New User Created",
+            f"{body.first_name.strip()} {body.last_name.strip()} was created as {body.role}.",
+        )
 
         db.commit()
         db.refresh(new_user)
@@ -420,10 +406,7 @@ def create_club(
     league_uuid = None
     league = None
     if body.league_id:
-        try:
-            league_uuid = _uuid.UUID(body.league_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid league_id format.")
+        league_uuid = parse_uuid(body.league_id, "league_id format")
         league = db.query(League).filter(League.id == league_uuid).first()
         if not league:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="League not found.")
@@ -585,15 +568,12 @@ async def bulk_import_clubs(
         created += 1
 
     if created:
-        admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
-        for admin in admins:
-            create_notification(
-                db,
-                admin.id,
-                "profile",
-                "Bulk Import Successful",
-                f"{created} club{'s' if created != 1 else ''} imported successfully.",
-            )
+        notify_global_admins(
+            db,
+            "profile",
+            "Bulk Import Successful",
+            f"{created} club{'s' if created != 1 else ''} imported successfully.",
+        )
         db.commit()
 
     return BulkImportResult(created=created, errors=errors)
@@ -641,10 +621,7 @@ def create_player(
     club_uuid = None
     club = None
     if body.club_id:
-        try:
-            club_uuid = _uuid.UUID(body.club_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid club_id format.")
+        club_uuid = parse_uuid(body.club_id, "club_id format")
         club = db.query(Club).filter(Club.id == club_uuid, Club.deleted_at.is_(None)).first()
         if not club:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
@@ -847,15 +824,12 @@ async def bulk_import_players(
         created += 1
 
     if created:
-        admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
-        for admin in admins:
-            create_notification(
-                db,
-                admin.id,
-                "profile",
-                "Bulk Import Successful",
-                f"{created} player{'s' if created != 1 else ''} imported successfully.",
-            )
+        notify_global_admins(
+            db,
+            "profile",
+            "Bulk Import Successful",
+            f"{created} player{'s' if created != 1 else ''} imported successfully.",
+        )
         db.commit()
 
     return BulkImportResult(created=created, errors=errors)
@@ -922,13 +896,7 @@ def create_report(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    try:
-        scout_uuid = _uuid.UUID(body.scout_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Invalid scout_id format.",
-        )
+    scout_uuid = parse_uuid(body.scout_id, "scout_id format")
 
     scout = (
         db.query(User)
@@ -943,13 +911,7 @@ def create_report(
 
     player_uuid = None
     if body.player_id:
-        try:
-            player_uuid = _uuid.UUID(body.player_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Invalid player_id format.",
-            )
+        player_uuid = parse_uuid(body.player_id, "player_id format")
         if not db.query(Player).filter(Player.id == player_uuid).first():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -994,10 +956,7 @@ def update_user(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid user_id format.")
+    uid = parse_uuid(user_id, "user_id format")
 
     user = db.query(User).filter(User.id == uid, User.deleted_at.is_(None)).first()
     if not user:
@@ -1016,10 +975,7 @@ def update_user(
     club_uuid = None
     club = None
     if body.club_id:
-        try:
-            club_uuid = _uuid.UUID(body.club_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid club_id format.")
+        club_uuid = parse_uuid(body.club_id, "club_id format")
         club = db.query(Club).filter(Club.id == club_uuid, Club.deleted_at.is_(None)).first()
         if not club:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
@@ -1061,10 +1017,7 @@ def delete_user(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ) -> None:
-    try:
-        uid = _uuid.UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid user_id format.")
+    uid = parse_uuid(user_id, "user_id format")
 
     user = db.query(User).filter(User.id == uid, User.deleted_at.is_(None)).first()
     if not user:
@@ -1085,10 +1038,7 @@ def update_club(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    try:
-        cid = _uuid.UUID(club_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid club_id format.")
+    cid = parse_uuid(club_id, "club_id format")
 
     club = db.query(Club).filter(Club.id == cid, Club.deleted_at.is_(None)).first()
     if not club:
@@ -1097,10 +1047,7 @@ def update_club(
     league_uuid = None
     league = None
     if body.league_id:
-        try:
-            league_uuid = _uuid.UUID(body.league_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid league_id format.")
+        league_uuid = parse_uuid(body.league_id, "league_id format")
         league = db.query(League).filter(League.id == league_uuid).first()
         if not league:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="League not found.")
@@ -1145,10 +1092,7 @@ def delete_club(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ) -> None:
-    try:
-        cid = _uuid.UUID(club_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid club_id format.")
+    cid = parse_uuid(club_id, "club_id format")
 
     club = db.query(Club).filter(Club.id == cid, Club.deleted_at.is_(None)).first()
     if not club:
@@ -1189,10 +1133,7 @@ async def upload_club_logo(
 ):
     import os
 
-    try:
-        cid = _uuid.UUID(club_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid club_id format.")
+    cid = parse_uuid(club_id, "club_id format")
 
     club = db.query(Club).filter(Club.id == cid, Club.deleted_at.is_(None)).first()
     if not club:
@@ -1268,10 +1209,7 @@ def update_player(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    try:
-        pid = _uuid.UUID(player_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid player_id format.")
+    pid = parse_uuid(player_id, "player_id format")
 
     player = db.query(Player).filter(Player.id == pid).first()
     if not player:
@@ -1280,10 +1218,7 @@ def update_player(
     club_uuid = None
     club = None
     if body.club_id:
-        try:
-            club_uuid = _uuid.UUID(body.club_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid club_id format.")
+        club_uuid = parse_uuid(body.club_id, "club_id format")
         club = db.query(Club).filter(Club.id == club_uuid, Club.deleted_at.is_(None)).first()
         if not club:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
@@ -1335,10 +1270,7 @@ def delete_player(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ) -> None:
-    try:
-        pid = _uuid.UUID(player_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid player_id format.")
+    pid = parse_uuid(player_id, "player_id format")
 
     player = db.query(Player).filter(Player.id == pid).first()
     if not player:
@@ -1383,20 +1315,14 @@ def update_report(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    try:
-        rid = _uuid.UUID(report_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid report_id format.")
+    rid = parse_uuid(report_id, "report_id format")
 
     report = db.query(ScoutingReport).filter(ScoutingReport.id == rid).first()
     if not report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
 
     if body.player_id:
-        try:
-            player_uuid = _uuid.UUID(body.player_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid player_id format.")
+        player_uuid = parse_uuid(body.player_id, "player_id format")
         if not db.query(Player).filter(Player.id == player_uuid).first():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
         report.player_id = player_uuid
@@ -1450,10 +1376,7 @@ def delete_report(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ) -> None:
-    try:
-        rid = _uuid.UUID(report_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid report_id format.")
+    rid = parse_uuid(report_id, "report_id format")
 
     report = db.query(ScoutingReport).filter(ScoutingReport.id == rid).first()
     if not report:

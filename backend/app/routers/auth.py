@@ -27,7 +27,7 @@ from app.schemas.auth import (
     UpdateProfileRequest,
 )
 from app.schemas.user import UserResponse
-from app.utils.notifications import create_notification
+from app.utils.notifications import create_notification, notify_global_admins
 from app.security import (
     create_access_token,
     create_refresh_token,
@@ -65,6 +65,35 @@ def _clear_refresh_cookie(response: Response) -> None:
     )
 
 
+def _assert_account_active(user: User) -> None:
+    if user.status == "suspended":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been suspended.",
+        )
+    if user.status == "inactive":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is inactive.",
+        )
+
+
+def _issue_tokens(user: User, db: Session, response: Response) -> AccessTokenResponse:
+    access_token = create_access_token(subject=str(user.id), role=user.role)
+    raw_refresh, refresh_hash = create_refresh_token()
+    db.add(
+        RefreshToken(
+            user_id=user.id,
+            token_hash=refresh_hash,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days),
+        )
+    )
+    user.last_login_at = datetime.now(timezone.utc)
+    db.commit()
+    _set_refresh_cookie(response, raw_refresh)
+    return AccessTokenResponse(access_token=access_token)
+
+
 @router.post(
     "/register",
     response_model=UserResponse,
@@ -96,15 +125,12 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
             status="active",
         ))
 
-    admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
-    for admin in admins:
-        create_notification(
-            db,
-            admin.id,
-            "profile",
-            "New User Registered",
-            f"{payload.first_name} {payload.last_name} registered as {payload.role}.",
-        )
+    notify_global_admins(
+        db,
+        "profile",
+        "New User Registered",
+        f"{payload.first_name} {payload.last_name} registered as {payload.role}.",
+    )
 
     db.commit()
     db.refresh(user)
@@ -126,35 +152,8 @@ def login(request: Request, payload: LoginRequest, response: Response, db: Sessi
             detail="Invalid email or password.",
         )
 
-    if user.status == "suspended":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account has been suspended.",
-        )
-
-    if user.status == "inactive":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account is inactive.",
-        )
-
-    access_token = create_access_token(subject=str(user.id), role=user.role)
-    raw_refresh, refresh_hash = create_refresh_token()
-
-    db.add(
-        RefreshToken(
-            user_id=user.id,
-            token_hash=refresh_hash,
-            expires_at=datetime.now(timezone.utc)
-            + timedelta(days=settings.refresh_token_expire_days),
-        )
-    )
-
-    user.last_login_at = datetime.now(timezone.utc)
-    db.commit()
-
-    _set_refresh_cookie(response, raw_refresh)
-    return AccessTokenResponse(access_token=access_token)
+    _assert_account_active(user)
+    return _issue_tokens(user, db, response)
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
@@ -492,43 +491,15 @@ def google_callback(
             db.add(user)
             db.flush()
 
-            admins = db.query(User).filter(User.role == "global_admin", User.deleted_at.is_(None)).all()
-            for admin in admins:
-                create_notification(
-                    db,
-                    admin.id,
-                    "profile",
-                    "New User Registered",
-                    f"{first_name} {last_name} registered via Google as scout.",
-                )
+            notify_global_admins(
+                db,
+                "profile",
+                "New User Registered",
+                f"{first_name} {last_name} registered via Google as scout.",
+            )
 
             db.commit()
             db.refresh(user)
 
-    if user.status == "suspended":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account has been suspended.",
-        )
-    if user.status == "inactive":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account is inactive.",
-        )
-
-    access_token = create_access_token(subject=str(user.id), role=user.role)
-    raw_refresh, refresh_hash = create_refresh_token()
-
-    db.add(
-        RefreshToken(
-            user_id=user.id,
-            token_hash=refresh_hash,
-            expires_at=datetime.now(timezone.utc)
-            + timedelta(days=settings.refresh_token_expire_days),
-        )
-    )
-    user.last_login_at = datetime.now(timezone.utc)
-    db.commit()
-
-    _set_refresh_cookie(response, raw_refresh)
-    return AccessTokenResponse(access_token=access_token)
+    _assert_account_active(user)
+    return _issue_tokens(user, db, response)

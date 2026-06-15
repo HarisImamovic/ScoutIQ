@@ -1,6 +1,4 @@
 import logging
-from datetime import date
-from typing import Optional
 
 from groq import Groq
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -15,6 +13,7 @@ from app.models.player import Player
 from app.models.report import ScoutingReport
 from app.models.saved_prospect import SavedProspect
 from app.models.user import User
+from app.utils.age import calc_age
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 logger = logging.getLogger(__name__)
@@ -34,13 +33,6 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
-
-
-def _calc_age(dob: Optional[date]) -> Optional[int]:
-    if not dob:
-        return None
-    today = date.today()
-    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
 
 def _build_context(db: Session, current_user: User) -> str:
@@ -69,7 +61,7 @@ def _build_context(db: Session, current_user: User) -> str:
 
     lines = ["PLAYERS:"]
     for p in players:
-        age = _calc_age(p.date_of_birth)
+        age = calc_age(p.date_of_birth)
         club = p.club.name if p.club else "Free agent"
         parts = [
             f"{p.first_name} {p.last_name}",
@@ -110,7 +102,7 @@ def _build_context(db: Session, current_user: User) -> str:
             p = sp.player
             if not p:
                 continue
-            age = _calc_age(p.date_of_birth)
+            age = calc_age(p.date_of_birth)
             club = p.club.name if p.club else "Free agent"
             lines.append(f"{p.first_name} {p.last_name}, {p.position or 'N/A'}, age {age or '?'}, {club}")
     else:

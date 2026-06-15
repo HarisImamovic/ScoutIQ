@@ -17,6 +17,7 @@ import { clubAdminApi, isNoClubError, type ClubPlayerItem } from "@/api/clubAdmi
 import { scoutApi } from "@/api/scout";
 import type { HighlightItem } from "@/api/player";
 import { NoClubState } from "@/components/NoClubState";
+import { formatMarketValue } from "@/lib/formatters";
 
 const STATUS_COLORS: Record<string, string> = {
   active: "bg-primary/10 text-primary border-primary/20",
@@ -24,13 +25,6 @@ const STATUS_COLORS: Record<string, string> = {
   on_loan: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
   inactive: "bg-muted text-muted-foreground border-border",
 };
-
-function formatMarketValue(v: number | null): string {
-  if (v == null) return "—";
-  if (v >= 1_000_000) return `€${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `€${(v / 1_000).toFixed(0)}K`;
-  return `€${v}`;
-}
 
 function capitalizeStatus(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());

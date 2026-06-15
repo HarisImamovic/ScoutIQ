@@ -1,6 +1,4 @@
-import uuid as _uuid
-from datetime import date, datetime, timezone
-from typing import Optional
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
@@ -15,7 +13,9 @@ from app.models.player_view import PlayerView
 from app.models.report import ScoutingReport
 from app.models.saved_prospect import SavedProspect
 from app.models.user import User
+from app.utils.age import calc_age
 from app.utils.notifications import create_notification
+from app.utils.uuid import parse_uuid, try_parse_uuid
 from app.schemas.scout import (
     CreateScoutReportRequest,
     PlayerDropdownItem,
@@ -33,13 +33,6 @@ from app.schemas.scout import (
 router = APIRouter(prefix="/scout", tags=["scout"])
 
 _require_scout = require_role("scout")
-
-
-def _calc_age(dob: Optional[date]) -> Optional[int]:
-    if not dob:
-        return None
-    today = date.today()
-    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +90,7 @@ def get_dashboard(
             nationality=p.nationality,
             club_name=club_name,
             club_logo_url=club_logo_url,
-            age=_calc_age(p.date_of_birth),
+            age=calc_age(p.date_of_birth),
             market_value=p.market_value,
             last_viewed=last_viewed,
         )
@@ -123,7 +116,7 @@ def get_dashboard(
             nationality=p.nationality,
             club_name=club_name,
             club_logo_url=club_logo_url,
-            age=_calc_age(p.date_of_birth),
+            age=calc_age(p.date_of_birth),
             saved_at=sp.saved_at,
         )
         for sp, p, club_name, club_logo_url in saved_rows
@@ -205,11 +198,9 @@ def list_players(
         query = query.filter(Player.position == position.strip().upper())
 
     if club_id.strip():
-        try:
-            cid = _uuid.UUID(club_id.strip())
+        cid = try_parse_uuid(club_id.strip())
+        if cid:
             query = query.filter(Player.club_id == cid)
-        except ValueError:
-            pass
 
     total = query.count()
     rows = (
@@ -232,7 +223,7 @@ def list_players(
             first_name=p.first_name,
             last_name=p.last_name,
             position=p.position,
-            age=_calc_age(p.date_of_birth),
+            age=calc_age(p.date_of_birth),
             nationality=p.nationality,
             club_id=str(p.club_id) if p.club_id else None,
             club_name=club_name,
@@ -258,10 +249,7 @@ def record_view(
     scout: User = Depends(_require_scout),
     db: Session = Depends(get_db),
 ):
-    try:
-        pid = _uuid.UUID(player_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid player_id.")
+    pid = parse_uuid(player_id, "player_id")
 
     if not db.query(Player).filter(Player.id == pid).first():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
@@ -295,7 +283,7 @@ def list_saved_prospects(
             first_name=p.first_name,
             last_name=p.last_name,
             position=p.position,
-            age=_calc_age(p.date_of_birth),
+            age=calc_age(p.date_of_birth),
             nationality=p.nationality,
             club_name=club_name,
             club_logo_url=club_logo_url,
@@ -312,10 +300,7 @@ def save_prospect(
     scout: User = Depends(_require_scout),
     db: Session = Depends(get_db),
 ):
-    try:
-        pid = _uuid.UUID(player_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid player_id.")
+    pid = parse_uuid(player_id, "player_id")
 
     if not db.query(Player).filter(Player.id == pid).first():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
@@ -363,10 +348,7 @@ def unsave_prospect(
     scout: User = Depends(_require_scout),
     db: Session = Depends(get_db),
 ):
-    try:
-        pid = _uuid.UUID(player_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid player_id.")
+    pid = parse_uuid(player_id, "player_id")
 
     sp = (
         db.query(SavedProspect)
@@ -438,10 +420,7 @@ def create_report(
 ):
     player_uuid = None
     if body.player_id:
-        try:
-            player_uuid = _uuid.UUID(body.player_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid player_id.")
+        player_uuid = parse_uuid(body.player_id, "player_id")
         if not db.query(Player).filter(Player.id == player_uuid).first():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
 
@@ -504,10 +483,7 @@ def update_report(
     scout: User = Depends(_require_scout),
     db: Session = Depends(get_db),
 ):
-    try:
-        rid = _uuid.UUID(report_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid report_id.")
+    rid = parse_uuid(report_id, "report_id")
 
     report = (
         db.query(ScoutingReport)
@@ -518,10 +494,7 @@ def update_report(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
 
     if body.player_id:
-        try:
-            player_uuid = _uuid.UUID(body.player_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid player_id.")
+        player_uuid = parse_uuid(body.player_id, "player_id")
         if not db.query(Player).filter(Player.id == player_uuid).first():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
         report.player_id = player_uuid
@@ -572,10 +545,7 @@ def delete_report(
     scout: User = Depends(_require_scout),
     db: Session = Depends(get_db),
 ) -> None:
-    try:
-        rid = _uuid.UUID(report_id)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid report_id.")
+    rid = parse_uuid(report_id, "report_id")
 
     report = (
         db.query(ScoutingReport)

@@ -8,13 +8,7 @@ import { Eye, Bookmark, FileText, ArrowRight, AlertCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { scoutApi } from "@/api/scout";
 import { ClubLogo } from "@/components/ClubLogo";
-
-function formatMarketValue(v: number | null): string {
-  if (v == null) return "—";
-  if (v >= 1_000_000) return `€${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `€${(v / 1_000).toFixed(0)}K`;
-  return `€${v}`;
-}
+import { formatMarketValue } from "@/lib/formatters";
 
 export default function ScoutDashboard() {
   const { data, isLoading, isError } = useQuery({
