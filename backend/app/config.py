@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     gmail_app_password: str = ""
     frontend_url: str = "http://localhost:8080"
     groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
+    ai_system_prompt: str = "You are a professional AI scouting assistant for ScoutIQ. Answer only football scouting questions using the data provided. Decline all other requests."
+    groq_request_timeout: int = 30
+    ai_daily_request_limit: int = 50
+    ai_requests_per_minute: int = 10
+    ai_max_players_context: int = 40
+    ai_max_reports_context: int = 20
+    ai_max_prospects_context: int = 30
     telegram_bot_token: str = ""
     telegram_bot_username: str = ""
 

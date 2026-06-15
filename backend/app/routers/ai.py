@@ -1,54 +1,110 @@
+import json
 import logging
+from datetime import date
+from typing import Iterator
 
-from groq import Groq
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from fastapi.responses import StreamingResponse
+from groq import APIConnectionError, APIStatusError, APITimeoutError, Groq, RateLimitError
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
 from app.database import get_db
 from app.dependencies import require_role
 from app.limiter import limiter
+from app.models.ai_usage_log import AiUsageLog
 from app.models.player import Player
 from app.models.report import ScoutingReport
 from app.models.saved_prospect import SavedProspect
 from app.models.user import User
+from app.security import decode_access_token
 from app.utils.age import calc_age
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = (
-    "You are an AI scouting assistant for ScoutIQ, a professional football scouting platform. "
-    "You have access to real data from the platform's database. "
-    "Answer the scout's questions accurately and concisely using only the provided data. "
-    "If the data doesn't contain what's needed, say so clearly. "
-    "Be professional, direct, and helpful."
-)
+_REPORT_STATUSES = ("submitted", "approved", "rejected")
+_MAX_CONTEXT_CHARS = 12_000
+
+def _system_prompt() -> str:
+    return get_settings().ai_system_prompt
+
+_groq: Groq | None = None
+
+
+def _get_groq_client() -> Groq:
+    global _groq
+    if _groq is None:
+        _groq = Groq(api_key=get_settings().groq_api_key)
+    return _groq
+
+
+def _ai_rate_key(request: Request) -> str:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        try:
+            payload = decode_access_token(auth[7:])
+            return f"ai_user_{payload['sub']}"
+        except Exception:
+            pass
+    from slowapi.util import get_remote_address
+    return get_remote_address(request)
+
+
+class HistoryMessage(BaseModel):
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: str = Field(..., max_length=500)
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., max_length=2000)
+    message: str = Field(..., min_length=1, max_length=2000)
+    history: list[HistoryMessage] = Field(default_factory=list)
+
+    @field_validator("history")
+    @classmethod
+    def _trim_history(cls, v: list) -> list:
+        return v[-10:]
 
 
-class ChatResponse(BaseModel):
-    response: str
+def _check_and_increment_daily_usage(db: Session, user_id, daily_limit: int) -> int:
+    today = date.today()
+    record = (
+        db.query(AiUsageLog)
+        .filter(AiUsageLog.user_id == user_id, AiUsageLog.date == today)
+        .first()
+    )
+    used = record.request_count if record else 0
+    if used >= daily_limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Daily limit of {daily_limit} requests reached. Try again tomorrow.",
+        )
+    if record:
+        record.request_count += 1
+    else:
+        db.add(AiUsageLog(user_id=user_id, date=today, request_count=1))
+    db.commit()
+    return used + 1
 
 
-def _build_context(db: Session, current_user: User) -> str:
+def _build_context(db: Session, current_user: User, settings) -> str:
     players = (
         db.query(Player)
         .options(joinedload(Player.club))
         .filter(Player.status == "active")
-        .limit(40)
+        .limit(settings.ai_max_players_context)
         .all()
     )
 
     reports = (
         db.query(ScoutingReport)
-        .filter(ScoutingReport.status == "published", ScoutingReport.scout_id == current_user.id)
+        .filter(
+            ScoutingReport.scout_id == current_user.id,
+            ScoutingReport.status.in_(_REPORT_STATUSES),
+        )
         .order_by(ScoutingReport.created_at.desc())
-        .limit(20)
+        .limit(settings.ai_max_reports_context)
         .all()
     )
 
@@ -56,17 +112,18 @@ def _build_context(db: Session, current_user: User) -> str:
         db.query(SavedProspect)
         .options(joinedload(SavedProspect.player).joinedload(Player.club))
         .filter(SavedProspect.scout_id == current_user.id)
+        .limit(settings.ai_max_prospects_context)
         .all()
     )
 
-    lines = ["PLAYERS:"]
+    lines = ["=== PLAYERS ==="]
     for p in players:
         age = calc_age(p.date_of_birth)
         club = p.club.name if p.club else "Free agent"
         parts = [
             f"{p.first_name} {p.last_name}",
             p.position or "N/A",
-            str(age) if age else "?",
+            f"age {age}" if age else "age ?",
             club,
             f"€{p.market_value:,}" if p.market_value else "val=?",
         ]
@@ -89,14 +146,18 @@ def _build_context(db: Session, current_user: User) -> str:
             parts.append("/".join(stats))
         lines.append(", ".join(parts))
 
-    lines.append(f"\nREPORTS (scout: {current_user.first_name} {current_user.last_name}):")
-    for r in reports:
-        notes = (r.notes[:80] + "…") if r.notes and len(r.notes) > 80 else (r.notes or "")
-        lines.append(
-            f"{r.player_name}, {r.position}, {r.rating}/10" + (f", {notes}" if notes else "")
-        )
+    lines.append("\n=== YOUR REPORTS ===")
+    if reports:
+        for r in reports:
+            notes = (r.notes[:80] + "…") if r.notes and len(r.notes) > 80 else (r.notes or "")
+            lines.append(
+                f"{r.player_name}, {r.position}, rating {r.rating}/100, {r.status}"
+                + (f" — {notes}" if notes else "")
+            )
+    else:
+        lines.append("No submitted or approved reports yet.")
 
-    lines.append(f"\nSAVED PROSPECTS (scout: {current_user.first_name} {current_user.last_name}):")
+    lines.append("\n=== YOUR SAVED PROSPECTS ===")
     if saved_prospects:
         for sp in saved_prospects:
             p = sp.player
@@ -108,11 +169,37 @@ def _build_context(db: Session, current_user: User) -> str:
     else:
         lines.append("None saved yet.")
 
-    return "\n".join(lines)
+    context = "\n".join(lines)
+    if len(context) > _MAX_CONTEXT_CHARS:
+        context = context[:_MAX_CONTEXT_CHARS] + "\n[Context truncated]"
+    return context
 
 
-@router.post("/chat", response_model=ChatResponse)
-@limiter.limit("20/minute")
+@router.get("/usage")
+def get_usage(
+    current_user: User = Depends(require_role("scout")),
+    db: Session = Depends(get_db),
+):
+    settings = get_settings()
+    today = date.today()
+    record = (
+        db.query(AiUsageLog)
+        .filter(AiUsageLog.user_id == current_user.id, AiUsageLog.date == today)
+        .first()
+    )
+    used = record.request_count if record else 0
+    return {
+        "requests_today": used,
+        "daily_limit": settings.ai_daily_request_limit,
+        "remaining": max(0, settings.ai_daily_request_limit - used),
+    }
+
+
+@router.post("/chat")
+@limiter.limit(
+    f"{get_settings().ai_requests_per_minute}/minute",
+    key_func=_ai_rate_key,
+)
 def chat(
     request: Request,
     body: ChatRequest,
@@ -126,23 +213,58 @@ def chat(
             detail="AI assistant is not configured.",
         )
 
-    context = _build_context(db, current_user)
+    used = _check_and_increment_daily_usage(db, current_user.id, settings.ai_daily_request_limit)
+    remaining = settings.ai_daily_request_limit - used
 
-    try:
-        client = Groq(api_key=settings.groq_api_key)
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"{context}\n\nQuestion: {body.message}"},
-            ],
-            max_tokens=1024,
-            temperature=0.7,
-        )
-        return ChatResponse(response=completion.choices[0].message.content)
-    except Exception as exc:
-        logger.exception("Groq API call failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to get a response from the AI service.",
-        )
+    context = _build_context(db, current_user, settings)
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                _system_prompt()
+                + f"\n\n=== PLATFORM DATA ===\n{context}\n=== END PLATFORM DATA ==="
+            ),
+        }
+    ]
+    for h in body.history:
+        messages.append({"role": h.role, "content": h.content})
+    messages.append({"role": "user", "content": f"=== USER INPUT ===\n{body.message}"})
+
+    user_id_str = str(current_user.id)
+    db.close()
+
+    groq_client = _get_groq_client()
+    model = settings.groq_model
+    timeout = float(settings.groq_request_timeout)
+
+    def generate() -> Iterator[str]:
+        try:
+            stream = groq_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=1024,
+                temperature=0.1,
+                stream=True,
+                timeout=timeout,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield f"data: {json.dumps({'chunk': delta})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'remaining': remaining})}\n\n"
+        except RateLimitError:
+            logger.warning("Groq rate limit hit for user %s", user_id_str)
+            yield f"data: {json.dumps({'error': 'rate_limit'})}\n\n"
+        except APITimeoutError:
+            logger.error("Groq timeout for user %s", user_id_str)
+            yield f"data: {json.dumps({'error': 'timeout'})}\n\n"
+        except (APIConnectionError, APIStatusError) as exc:
+            logger.exception("Groq API error for user %s: %s", user_id_str, exc)
+            yield f"data: {json.dumps({'error': 'service_unavailable'})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
