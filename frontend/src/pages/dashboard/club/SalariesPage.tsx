@@ -194,9 +194,11 @@ export default function SalariesPage() {
           <h1 className="text-2xl md:text-3xl font-display font-bold">Salaries</h1>
           <p className="text-muted-foreground mt-1">Track and manage player contracts</p>
         </div>
-        <Button variant="hero" size="sm" onClick={openCreate}>
-          <Plus className="w-4 h-4 mr-2" /> Add Contract
-        </Button>
+        {!isNoClubError(error) && (
+          <Button variant="hero" size="sm" onClick={openCreate}>
+            <Plus className="w-4 h-4 mr-2" /> Add Contract
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

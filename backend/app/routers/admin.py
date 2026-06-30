@@ -38,7 +38,7 @@ from app.schemas.admin import (
     UpdateUserRequest,
 )
 from app.security import hash_password
-from app.utils.notifications import create_notification, notify_global_admins
+from app.utils.notifications import create_notification, format_role, notify_global_admins
 from app.utils.telegram import send_report_notification
 from app.utils.uuid import parse_uuid
 
@@ -321,7 +321,7 @@ def create_user(
             db,
             "profile",
             "New User Created",
-            f"{body.first_name.strip()} {body.last_name.strip()} was created as {body.role}.",
+            f"{body.first_name.strip()} {body.last_name.strip()} was created as {format_role(body.role)}.",
         )
 
         db.commit()
@@ -517,7 +517,13 @@ async def bulk_import_clubs(
     except Exception:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not parse the Excel file. Make sure it is a valid .xlsx or .xls file.")
 
-    leagues_by_name = {l.name.strip().lower(): l for l in db.query(League).all()}
+    all_leagues = db.query(League).all()
+    leagues_by_name = {l.name.strip().lower(): l for l in all_leagues}
+    leagues_by_country: dict[str, list[str]] = {}
+    for l in all_leagues:
+        key = l.country.strip().lower()
+        leagues_by_country.setdefault(key, []).append(l.name)
+
     _VALID_CLUB_STATUSES = {"active", "pending", "suspended"}
 
     errors: list[BulkImportRowError] = []
@@ -546,10 +552,21 @@ async def bulk_import_clubs(
             row_errors.append(BulkImportRowError(row=i, field="country", message=f"Country exceeds 100 characters (got {len(country)})."))
 
         league_obj = None
-        if league_raw:
+        if not league_raw:
+            available = sorted(leagues_by_country.get(country.strip().lower(), [])) if country else []
+            if available:
+                row_errors.append(BulkImportRowError(row=i, field="league", message=f"League is required. Available leagues for '{country}': {', '.join(available)}."))
+            else:
+                row_errors.append(BulkImportRowError(row=i, field="league", message="League is required. Use an existing league name."))
+        else:
             league_obj = leagues_by_name.get(league_raw.lower())
             if not league_obj:
-                row_errors.append(BulkImportRowError(row=i, field="league", message=f"League '{league_raw}' not found. Leave blank or use an existing league name."))
+                row_errors.append(BulkImportRowError(row=i, field="league", message=f"League '{league_raw}' not found. Use an existing league name."))
+            elif country and league_obj.country.strip().lower() != country.strip().lower():
+                available = sorted(leagues_by_country.get(country.strip().lower(), []))
+                suggestion = f" Available leagues for '{country}': {', '.join(available)}." if available else ""
+                row_errors.append(BulkImportRowError(row=i, field="league", message=f"League '{league_raw}' belongs to {league_obj.country}, not '{country}'.{suggestion}"))
+                league_obj = None
 
         if status_raw not in _VALID_CLUB_STATUSES:
             row_errors.append(BulkImportRowError(row=i, field="status", message=f"Invalid status '{status_raw}'. Must be one of: active, pending, suspended."))

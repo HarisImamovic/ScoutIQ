@@ -4,6 +4,17 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+_ROLE_LABELS: dict[str, str] = {
+    "player": "Player",
+    "scout": "Scout",
+    "club_admin": "Club Admin",
+    "global_admin": "Global Admin",
+}
+
+
+def format_role(role: str) -> str:
+    return _ROLE_LABELS.get(role, role)
+
 
 def create_notification(
     db: Session,

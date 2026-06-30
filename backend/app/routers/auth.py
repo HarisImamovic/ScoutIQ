@@ -27,7 +27,7 @@ from app.schemas.auth import (
     UpdateProfileRequest,
 )
 from app.schemas.user import UserResponse
-from app.utils.notifications import create_notification, notify_global_admins
+from app.utils.notifications import create_notification, format_role, notify_global_admins
 from app.security import (
     create_access_token,
     create_refresh_token,
@@ -129,7 +129,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         db,
         "profile",
         "New User Registered",
-        f"{payload.first_name} {payload.last_name} registered as {payload.role}.",
+        f"{payload.first_name} {payload.last_name} registered as {format_role(payload.role)}.",
     )
 
     db.commit()
@@ -495,7 +495,7 @@ def google_callback(
                 db,
                 "profile",
                 "New User Registered",
-                f"{first_name} {last_name} registered via Google as scout.",
+                f"{first_name} {last_name} registered via Google as {format_role('scout')}.",
             )
 
             db.commit()

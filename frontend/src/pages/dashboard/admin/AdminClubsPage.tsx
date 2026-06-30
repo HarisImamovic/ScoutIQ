@@ -248,7 +248,8 @@ export default function AdminClubsPage() {
 
   const hasErrors =
     !form.name.trim() || form.name.length > 200 ||
-    !form.country.trim();
+    !form.country.trim() ||
+    !form.league_id || form.league_id === "none";
 
   const handleSave = async () => {
     if (editTarget) {

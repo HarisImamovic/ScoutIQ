@@ -146,12 +146,13 @@ def _build_context(db: Session, current_user: User, settings) -> str:
             parts.append("/".join(stats))
         lines.append(", ".join(parts))
 
-    lines.append("\n=== YOUR REPORTS ===")
+    lines.append("\n=== YOUR REPORTS (listed newest to oldest by date written) ===")
     if reports:
         for r in reports:
             notes = (r.notes[:80] + "…") if r.notes and len(r.notes) > 80 else (r.notes or "")
+            date_str = r.created_at.strftime("%Y-%m-%d") if r.created_at else "unknown date"
             lines.append(
-                f"{r.player_name}, {r.position}, rating {r.rating}/100, {r.status}"
+                f"[{date_str}] {r.player_name}, {r.position}, rating {r.rating}/100, {r.status}"
                 + (f" — {notes}" if notes else "")
             )
     else:
