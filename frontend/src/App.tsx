@@ -107,7 +107,7 @@ const App = () => (
                   <Route path="club" element={<ClubDashboard />} />
                   <Route path="admin" element={<RoleRoute allowedRoles={["global_admin"]}><AdminDashboard /></RoleRoute>} />
 
-                  <Route path="players" element={<RoleRoute allowedRoles={["scout"]}><PlayersPage /></RoleRoute>} />
+                  <Route path="players" element={<RoleRoute allowedRoles={["scout", "club_admin"]}><PlayersPage /></RoleRoute>} />
                   <Route path="saved-prospects" element={<RoleRoute allowedRoles={["scout"]}><SavedProspectsPage /></RoleRoute>} />
                   <Route path="reports" element={<RoleRoute allowedRoles={["scout"]}><ReportsPage /></RoleRoute>} />
                   <Route path="ai" element={<RoleRoute allowedRoles={["scout"]}><AIAssistantPage /></RoleRoute>} />
