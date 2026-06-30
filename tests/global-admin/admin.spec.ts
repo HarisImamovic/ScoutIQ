@@ -40,6 +40,9 @@ test.describe("Global Admin", () => {
     await dialog.getByRole("combobox").first().click();
     await page.getByRole("option").first().click();
 
+    await dialog.getByRole("combobox").nth(1).click();
+    await page.getByRole("option").nth(1).click();
+
     await dialog.getByRole("button", { name: "Add Club" }).click();
 
     await expect(page.getByText("Club created successfully.")).toBeVisible({ timeout: 12_000 });
