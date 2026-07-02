@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import threading
 from datetime import datetime, timezone
 
@@ -6,6 +7,8 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 _app: Application | None = None
 _bot_loop: asyncio.AbstractEventLoop | None = None
@@ -93,4 +96,4 @@ def send_message(chat_id: str, text: str) -> None:
         )
         future.result(timeout=5)
     except Exception:
-        pass
+        logger.exception("Failed to send Telegram message to chat_id=%s", chat_id)

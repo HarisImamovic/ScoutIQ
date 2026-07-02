@@ -1,9 +1,13 @@
+import logging
 import threading
 import time
 from datetime import datetime, timedelta, timezone
 
 from app.database import SessionLocal
 from app.models.user import User
+from app.models.user import RefreshToken
+
+logger = logging.getLogger(__name__)
 
 
 def _run_inactivity_check() -> None:
@@ -18,13 +22,25 @@ def _run_inactivity_check() -> None:
         db.commit()
 
 
+def _purge_expired_refresh_tokens() -> None:
+    with SessionLocal() as db:
+        db.query(RefreshToken).filter(
+            RefreshToken.expires_at < datetime.now(timezone.utc),
+        ).delete(synchronize_session=False)
+        db.commit()
+
+
 def start_background_tasks() -> None:
     def loop() -> None:
         while True:
             try:
                 _run_inactivity_check()
             except Exception:
-                pass
+                logger.exception("Inactivity check failed")
+            try:
+                _purge_expired_refresh_tokens()
+            except Exception:
+                logger.exception("Refresh token purge failed")
             time.sleep(3600)
 
     thread = threading.Thread(target=loop, daemon=True)

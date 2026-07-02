@@ -9,6 +9,8 @@ from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy.orm import Session
 
+import logging
+
 from app.config import get_settings
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -16,6 +18,8 @@ from app.email import send_password_reset_email
 from app.limiter import limiter
 from app.models.password_reset_token import PasswordResetToken
 from app.models.user import RefreshToken, User
+
+logger = logging.getLogger(__name__)
 from app.schemas.auth import (
     AccessTokenResponse,
     ChangePasswordRequest,
@@ -308,6 +312,10 @@ def change_password(
         )
     current_user.password_hash = hash_password(payload.new_password)
     current_user.updated_at = datetime.now(timezone.utc)
+    db.query(RefreshToken).filter(
+        RefreshToken.user_id == current_user.id,
+        RefreshToken.revoked.is_(False),
+    ).update({"revoked": True}, synchronize_session=False)
     db.commit()
 
 
@@ -352,7 +360,7 @@ def forgot_password(
     try:
         send_password_reset_email(to_email=user.email, reset_link=reset_link)
     except Exception:
-        pass
+        logger.exception("Failed to send password reset email to %s", user.email)
 
     return _RESET_GENERIC
 
