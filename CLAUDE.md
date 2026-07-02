@@ -250,3 +250,89 @@ Backend has no test framework configured.
 
 - **Understanding a ticket**: Thoroughly read the summary and description before starting. Feature tickets contain full implementation details (files, endpoints, migrations). Bug tickets contain replication steps — replicate before fixing.
 - **Workflow**: Switch status from To Do → In Progress when starting. Move to QA - To Do when done.
+
+## Already Implemented
+
+Production-hardening items that have been completed. Listed here for historical reference.
+
+- **Health check endpoint** — `GET /api/health` added to `main.py`. Returns `{"status": "ok"}` unauthenticated; usable by load balancers and uptime monitors.
+- **HTTP security headers** — `SecurityHeadersMiddleware` added to `main.py`. Sets `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, and `Permissions-Policy` on every response.
+- **Session invalidation on password change** — `change_password` in `auth.py` now revokes all non-expired `RefreshToken` rows for the user immediately after the password hash is updated.
+- **Stale refresh token cleanup** — `_purge_expired_refresh_tokens()` added to `tasks.py`, runs hourly in the background thread alongside the inactivity check.
+- **DB connection pool_recycle** — `pool_recycle=1800` added to the SQLAlchemy engine in `database.py` to prevent silent connection drops from firewall idle timeouts.
+- **Log silenced exceptions** — Bare `except Exception: pass` blocks in `tasks.py` (inactivity loop), `bot.py` (`send_message`), and `auth.py` (`forgot_password` email send) replaced with `logger.exception(...)` so failures are visible in logs.
+- **Fix `NotFound.tsx`** — Removed `console.error()` from `useEffect` and replaced plain `<a href="/">` with React Router `<Link to="/">` to avoid a full-page reload on 404.
+- **Remove placeholder OG image** — Removed `og:image` and `twitter:image` meta tags from `index.html` that pointed to `/placeholder.svg` to avoid broken social preview cards.
+
+## Future Features
+
+This section tracks what needs to be built or hardened before the application is production-ready. Items are grouped by category and ordered roughly by priority within each group.
+
+### Infrastructure & Deployment
+
+- **Containerization** — Add `Dockerfile` for both `frontend/` and `backend/`, and a root `docker-compose.yml` that wires them together with a PostgreSQL service. Needed for reproducible builds and any cloud deploy target.
+- **Nginx config** — Add an `nginx/nginx.conf` that serves the Vite build as static files and reverse-proxies `/api/` to uvicorn. Without this the frontend and backend must be served by separate processes on different ports.
+- **Production CI/CD pipeline** — The current `.github/workflows/e2e.yml` runs E2E tests only. Add separate `ci.yml` (lint + unit tests on every PR) and `deploy.yml` (build images, push to registry, deploy to server on merge to `main`).
+- **Environment config for production** — Document required prod `.env` values explicitly (e.g., `DEBUG=false`, `ALLOWED_ORIGINS`, cookie `secure=True`, strong `JWT_SECRET_KEY`). Consider a `.env.example` file committed to the repo.
+- **Dependency pinning** — `backend/requirements.txt` uses minimum-version operators (`>=`) only, so builds are not reproducible. Use `pip-compile` (pip-tools) to generate a locked `requirements.lock`. Frontend `package.json` uses `^` semver ranges; `package-lock.json` already locks transitive deps but the discrepancy should be documented.
+- **Dependency security scanning** — Add Dependabot (`dependabot.yml`) for automated PRs on vulnerable dependencies, and a `safety` check for Python packages in CI.
+
+### Security
+
+- **Rate limiting on all mutating endpoints** — Currently only login, Google callback, forgot/reset password, and AI chat are rate-limited. Register, profile update, notification mark-read, and all admin CRUD endpoints are unprotected and should have per-IP or per-user limits added via `@limiter.limit(...)`.
+- **Account lockout on repeated failed logins** — SlowAPI enforces 10/min at IP level but does not lock an account after N consecutive failures. Add a `failed_login_count` + `locked_until` column to `User` and check it in the login route.
+- **Tighten CORS in production** — `main.py` passes `allow_methods=["*"]` and `allow_headers=["*"]`. In production restrict to the specific HTTP verbs and headers the frontend actually uses.
+- **Email verification on registration** — `POST /auth/register` sets `status = "active"` immediately. Add an email verification step (token in DB, verified flag on `User`) so unverified addresses cannot accumulate.
+- **Logout all sessions** — Add `POST /auth/logout-all` that revokes every non-expired `RefreshToken` for the current user. Needed when a device is lost or an account is compromised.
+- **Google SSO role restriction** — New Google OAuth users are hardcoded to `role="scout"` in `auth.py`. Add a post-OAuth role selection step (or a query parameter) so players and club admins can also register via Google.
+- **Avatar URL validation** — `avatar_url` on `User` is a free-form string. Validate that it is a URL belonging to a trusted domain (Google profile CDN or the app's own `/static/` path) before storing.
+- **Two-factor authentication (2FA)** — TOTP-based 2FA (Google Authenticator / Authy) for accounts with elevated roles (`scout`, `club_admin`, `global_admin`).
+- **Audit log** — Record every admin action (user created/suspended/deleted, player edited, report approved/rejected) to an `audit_log` table with `actor_id`, `action`, `target_type`, `target_id`, and `payload`. Surface it in the admin dashboard.
+
+### Database & Migrations
+
+- **Adopt Alembic** — Replace the current ad-hoc Python migration scripts in `backend/app/migrations/` with Alembic. This gives versioned, reversible up/down migrations and makes the CI pipeline (`e2e.yml`) more robust (currently it runs scripts manually in a fixed order).
+- **Add database indexes** — Queries that filter by `Player.status`, `ScoutingReport.status`, `ScoutingReport.scout_id`, `SavedProspect.scout_id`, and `Notification.user_id` run frequently but have no index. Add composite indexes where needed.
+- **Backup strategy** — Document (or automate via cron) `pg_dump` backups of the production database to object storage (S3 / R2). Include restore procedure.
+- **Unbounded-growth tables** — `player_views`, `ai_usage_log`, and `notifications` are never pruned. Add age-based cleanup to the background task (e.g., delete `player_views` older than 90 days, `ai_usage_log` older than 1 year, `notifications` older than 30 days).
+- **PostgreSQL SSL enforcement** — `database.py` is missing `connect_args={"sslmode": "require"}` for production TLS enforcement.
+- **Server-side pagination on admin/scout/club list endpoints** — All admin list endpoints (`GET /admin/users`, `/admin/clubs`, `/admin/leagues`, `/admin/players`, `/admin/reports`) return the entire table with no `page`/`limit` parameters. Same for `GET /club/players` and `GET /scout/saved-prospects`. At scale this causes timeouts. Add `skip`/`limit` (or cursor-based) pagination to all list endpoints.
+
+### Observability & Monitoring
+
+- **Structured logging** — Add a JSON-formatted log configuration wired at startup in `main.py`. All routers should log at appropriate levels with consistent fields (`user_id`, `request_id`, `action`). Note: silenced exceptions in `tasks.py`, `bot.py`, and `auth.py` have been fixed; full structured logging is the remaining gap.
+- **Request ID middleware** — Add a FastAPI middleware that generates a `X-Request-ID` header per request and injects it into log records. Makes tracing across log lines possible.
+- **Error monitoring** — Integrate Sentry (`sentry-sdk[fastapi]` on the backend, `@sentry/react` on the frontend). The global exception handler in `main.py` is the correct place to call `sentry_sdk.capture_exception`.
+- **Uptime / alerting** — Wire the `/api/health` endpoint into an uptime monitor (e.g., UptimeRobot, Betterstack) to alert on downtime.
+
+### Testing
+
+- **Backend unit tests** — The backend has no test framework configured. Add `pytest` + `httpx` (`AsyncClient`) with a test database. Priority targets: auth flow (login, refresh, logout), role enforcement (`require_role`), and the AI daily usage cap logic.
+- **Frontend unit test coverage** — Only one placeholder test file exists (`frontend/src/test/example.test.ts`). Add Vitest tests for: `AuthContext` token refresh logic, `RoleRoute` redirect behaviour, and key form validation schemas (Zod).
+- **Backend integration tests** — Use a real test PostgreSQL instance (already done in CI for E2E) to test full request cycles for admin CRUD, scout report creation, and notification dispatch.
+
+### Frontend Resilience
+
+- **Error boundary** — Add a React `ErrorBoundary` component wrapping `<DashboardLayout>` (and ideally each route). Without it an unhandled render error in one page crashes the entire shell, including the sidebar and navigation.
+- **Route-level code splitting** — `App.tsx` imports all 25+ page components eagerly. Wrap each dashboard route in `React.lazy` + `Suspense` to reduce the initial bundle size.
+- **PWA manifest** — Add `frontend/public/manifest.json` and the corresponding `<link rel="manifest">` in `index.html` so the app is installable on mobile and passes Lighthouse PWA checks.
+- **ARIA live regions** — The notification bell and toast messages have no `aria-live="polite"` region. Screen readers will not announce new notifications or toasts.
+
+### Feature Completeness
+
+- **Email notifications for key events** — `email.py` only sends password reset emails. Add transactional emails for: scouting report status change (scout notified), new player viewed by scout (player notified), account suspension (user notified). Use the same Gmail SMTP helper.
+- **Market value history chart** — `PlayerMarketValueHistory` model and snapshots exist but there is no UI for it. Add a line chart (Recharts or similar) to the player profile card visible to scouts and admins.
+- **Player self-service profile edit** — Players can view their own dashboard but cannot edit any of their own data (position, nationality, biography). Add an edit flow that allows players to submit updates pending admin approval.
+- **Scouting report PDF export** — Scouts can create and view reports but cannot export them. Add a `GET /scout/reports/{id}/export` endpoint that returns a PDF (using `reportlab` or `weasyprint`) and a download button in the reports UI.
+- **Telegram webhook mode** — `bot.py` uses long-polling in a daemon thread. In production, switch to webhook mode (`setWebhook`) so the bot does not require an outbound polling connection and scales correctly behind a load balancer.
+- **Background task queue** — The inactivity check in `tasks.py` runs in a plain daemon thread with `time.sleep(3600)`. Replace with APScheduler or Celery + Redis so tasks survive restarts, can be monitored, and support retries.
+- **Per-notification mark-read** — The backend has `POST /notifications/read` which marks ALL notifications read and `DELETE /notifications` which clears all. There is no `PATCH /notifications/{id}/read` to mark a single notification read. The frontend renders `is_read` per row but cannot toggle it individually.
+- **Real-time notifications** — The notification bell requires a page reload or navigation to `/dashboard/notifications` to update. Add a WebSocket or SSE endpoint (`GET /notifications/stream`) so the bell badge updates without polling.
+- **Async email sending** — `forgot_password` in `auth.py` sends email synchronously in the request handler. A slow or unavailable SMTP server will block the request. Move to FastAPI `BackgroundTasks`.
+- **Highlight moderation admin UI** — `PUT /highlights/{id}/status` exists in the backend for approving/rejecting player highlights. There is no admin page in the frontend; admins receive a notification with the URL but have no queue/list view to review pending highlights.
+- **Admin broadcast notifications** — No way for a global admin to send a notification to all users or a specific role group. Add a `POST /admin/notifications/broadcast` endpoint and a UI to compose it.
+- **HTTP caching on static assets** — Club and league logos served from `/static/logos/` have no `Cache-Control` headers. Configure `max-age` (e.g., 1 year with cache-busting filenames) to avoid re-downloading unchanged images on every request.
+- **Image optimization** — Uploaded logos are stored as-is with no resizing or compression. Add thumbnail generation (e.g., via `Pillow`) at upload time and serve optimised versions to avoid transferring full-resolution images to every page load.
+- **AI usage admin view** — There is no admin endpoint or UI to inspect `ai_usage_log` across all scouts, reset daily counters, or adjust per-user limits at runtime. Add `GET /admin/ai-usage` and surface it in the admin dashboard.
+- **Player views analytics** — `PlayerView` rows are inserted on every scout view but are never queried for aggregated metrics. Add a `GET /admin/players/{id}/views` or trending-players endpoint and surface view counts to admins.
+- **Admin analytics dashboard** — The global admin dashboard shows CRUD tables. Add a summary analytics view: total users by role, reports by status over time, most-viewed players, AI usage per scout.
