@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone, timedelta
 from app.database import SessionLocal
 from app.models.club import Club
 from app.models.league import League
+from app.models.mfa import MfaMethod, MfaRecoveryCode, MfaChallenge  # noqa: F401
 from app.models.notification import Notification  # noqa: F401
 from app.models.password_reset_token import PasswordResetToken  # noqa: F401
 from app.models.player import Player
