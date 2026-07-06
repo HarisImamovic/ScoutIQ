@@ -18,6 +18,8 @@ import GoogleCallbackPage from "./pages/GoogleCallbackPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
+import MfaVerifyPage from "./pages/MfaVerifyPage";
+import MfaSetupPage from "./pages/MfaSetupPage";
 import DashboardLayout from "./components/DashboardLayout";
 
 import ScoutDashboard from "./pages/dashboard/ScoutDashboard";
@@ -88,6 +90,8 @@ const App = () => (
               <Routes>
                 <Route path="/" element={<LandingPage />} />
                 <Route path="/login" element={<LoginPage />} />
+                <Route path="/login/verify" element={<MfaVerifyPage />} />
+                <Route path="/mfa-setup" element={<MfaSetupPage />} />
                 <Route path="/register" element={<RegisterPage />} />
                 <Route path="/forgot-password" element={<ForgotPasswordPage />} />
                 <Route path="/reset-password" element={<ResetPasswordPage />} />

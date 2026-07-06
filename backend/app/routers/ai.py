@@ -89,10 +89,12 @@ def _check_and_increment_daily_usage(db: Session, user_id, daily_limit: int) -> 
 
 
 def _build_context(db: Session, current_user: User, settings) -> str:
+    total_active = db.query(Player).filter(Player.status == "active").count()
     players = (
         db.query(Player)
         .options(joinedload(Player.club))
         .filter(Player.status == "active")
+        .order_by(Player.market_value.desc().nulls_last(), Player.last_name, Player.id)
         .limit(settings.ai_max_players_context)
         .all()
     )
@@ -116,7 +118,13 @@ def _build_context(db: Session, current_user: User, settings) -> str:
         .all()
     )
 
-    lines = ["=== PLAYERS ==="]
+    if total_active > len(players):
+        lines = [
+            f"=== PLAYERS (showing {len(players)} of {total_active} active players — this list is INCOMPLETE; "
+            "state that clearly when answering ranking or 'top N' questions) ==="
+        ]
+    else:
+        lines = [f"=== PLAYERS (all {total_active} active players) ==="]
     for p in players:
         age = calc_age(p.date_of_birth)
         club = p.club.name if p.club else "Free agent"

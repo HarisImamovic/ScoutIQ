@@ -115,7 +115,15 @@ export default function LoginPage() {
     if (!validate()) return;
     setSubmitting(true);
     try {
-      await login(email, password);
+      const outcome = await login(email, password);
+      if (outcome.status === "mfa_required") {
+        navigate("/login/verify", { state: outcome });
+        return;
+      }
+      if (outcome.status === "mfa_setup_required") {
+        navigate("/mfa-setup", { state: outcome });
+        return;
+      }
       toast.success("Logged in successfully.");
     } catch (err) {
       if (axios.isAxiosError(err)) {

@@ -81,6 +81,16 @@ class AccessTokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class LoginResponse(BaseModel):
+    access_token: str | None = None
+    token_type: str = "bearer"
+    mfa_required: bool = False
+    mfa_setup_required: bool = False
+    mfa_token: str | None = None
+    methods: list[str] = []
+    sms_available: bool = False
+
+
 class GoogleCallbackRequest(BaseModel):
     code: str
     code_verifier: str

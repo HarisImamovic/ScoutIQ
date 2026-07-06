@@ -20,20 +20,24 @@ from app.models.password_reset_token import PasswordResetToken
 from app.models.user import RefreshToken, User
 
 logger = logging.getLogger(__name__)
+from app.models.mfa import MfaMethod
 from app.schemas.auth import (
     AccessTokenResponse,
     ChangePasswordRequest,
     ForgotPasswordRequest,
     GoogleCallbackRequest,
     LoginRequest,
+    LoginResponse,
     RegisterRequest,
     ResetPasswordRequest,
     UpdateProfileRequest,
 )
 from app.schemas.user import UserResponse
+from app.utils.mfa import sms_available
 from app.utils.notifications import create_notification, format_role, notify_global_admins
 from app.security import (
     create_access_token,
+    create_mfa_token,
     create_refresh_token,
     hash_password,
     hash_refresh_token,
@@ -80,6 +84,29 @@ def _assert_account_active(user: User) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account is inactive.",
         )
+
+
+def _mfa_gate(user: User, db: Session, response: Response) -> LoginResponse:
+    confirmed = [
+        m.method
+        for m in db.query(MfaMethod)
+        .filter(MfaMethod.user_id == user.id, MfaMethod.confirmed.is_(True))
+        .all()
+    ]
+    if confirmed:
+        return LoginResponse(
+            mfa_required=True,
+            mfa_token=create_mfa_token(str(user.id), "verify"),
+            methods=confirmed,
+        )
+    if settings.mfa_enforced:
+        return LoginResponse(
+            mfa_setup_required=True,
+            mfa_token=create_mfa_token(str(user.id), "setup"),
+            sms_available=sms_available(),
+        )
+    tokens = _issue_tokens(user, db, response)
+    return LoginResponse(access_token=tokens.access_token)
 
 
 def _issue_tokens(user: User, db: Session, response: Response) -> AccessTokenResponse:
@@ -141,7 +168,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     return user
 
 
-@router.post("/login", response_model=AccessTokenResponse)
+@router.post("/login", response_model=LoginResponse)
 @limiter.limit("10/minute")
 def login(request: Request, payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
     user = (
@@ -157,7 +184,7 @@ def login(request: Request, payload: LoginRequest, response: Response, db: Sessi
         )
 
     _assert_account_active(user)
-    return _issue_tokens(user, db, response)
+    return _mfa_gate(user, db, response)
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
@@ -404,7 +431,7 @@ def reset_password(
     db.commit()
 
 
-@router.post("/google/callback", response_model=AccessTokenResponse)
+@router.post("/google/callback", response_model=LoginResponse)
 @limiter.limit("20/minute")
 def google_callback(
     request: Request,
@@ -510,4 +537,4 @@ def google_callback(
             db.refresh(user)
 
     _assert_account_active(user)
-    return _issue_tokens(user, db, response)
+    return _mfa_gate(user, db, response)

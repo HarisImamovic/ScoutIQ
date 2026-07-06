@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { authApi } from "@/api/auth";
 import { playerApi } from "@/api/player";
 import { telegramApi } from "@/api/telegram";
+import { MfaCard } from "@/components/mfa/MfaCard";
 import { toast } from "sonner";
 import axios from "axios";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -585,6 +586,9 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Two-Factor Authentication ────────────────────────────────────── */}
+      <MfaCard />
 
       {/* ── Telegram Notifications ───────────────────────────────────────── */}
       {role === "scout" && <TelegramCard />}

@@ -7,6 +7,51 @@ from app.config import get_settings
 settings = get_settings()
 
 
+def send_mfa_code_email(to_email: str, code: str, expires_minutes: int) -> None:
+    if not settings.gmail_user or not settings.gmail_app_password:
+        return
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Your ScoutIQ verification code"
+    msg["From"] = settings.gmail_user
+    msg["To"] = to_email
+
+    plain = (
+        f"Your ScoutIQ verification code is: {code}\n\n"
+        f"This code expires in {expires_minutes} minutes.\n\n"
+        f"If you did not request this code, someone may be trying to access your account — "
+        f"we recommend changing your password immediately."
+    )
+
+    html = f"""\
+<html>
+  <body style="font-family:sans-serif;color:#1a1a1a;max-width:480px;margin:auto;padding:32px 24px">
+    <h2 style="margin-bottom:8px">Your verification code</h2>
+    <p style="color:#555;margin-bottom:24px">
+      Enter this code to continue signing in to ScoutIQ.
+      It expires in <strong>{expires_minutes} minutes</strong>.
+    </p>
+    <div style="font-size:32px;font-weight:700;letter-spacing:8px;background:#f4f4f5;
+                border-radius:8px;padding:16px 24px;text-align:center">{code}</div>
+    <p style="margin-top:24px;font-size:13px;color:#888">
+      If you didn't request this code, someone may be trying to access your account —
+      we recommend changing your password immediately.
+    </p>
+    <hr style="margin-top:32px;border:none;border-top:1px solid #eee">
+    <p style="font-size:12px;color:#aaa">ScoutIQ · Football Scouting Platform</p>
+  </body>
+</html>"""
+
+    msg.attach(MIMEText(plain, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+        smtp.ehlo()
+        smtp.starttls()
+        smtp.login(settings.gmail_user, settings.gmail_app_password)
+        smtp.sendmail(settings.gmail_user, to_email, msg.as_string())
+
+
 def send_password_reset_email(to_email: str, reset_link: str) -> None:
     if not settings.gmail_user or not settings.gmail_app_password:
         return

@@ -101,7 +101,15 @@ export default function RegisterPage() {
     if (!credentialsRef.current) return;
     setSubmitting(true);
     try {
-      await login(credentialsRef.current.email, credentialsRef.current.password);
+      const outcome = await login(credentialsRef.current.email, credentialsRef.current.password);
+      if (outcome.status === "mfa_setup_required") {
+        navigate("/mfa-setup", { state: outcome });
+        return;
+      }
+      if (outcome.status === "mfa_required") {
+        navigate("/login/verify", { state: outcome });
+        return;
+      }
     } catch {
       navigate("/login", { replace: true });
     } finally {
@@ -307,9 +315,9 @@ export default function RegisterPage() {
                 <Check className="w-8 h-8 text-primary" />
               </div>
               <div>
-                <h2 className="text-2xl font-display font-bold">You're all set!</h2>
+                <h2 className="text-2xl font-display font-bold">Account created!</h2>
                 <p className="text-muted-foreground text-sm mt-2">
-                  Your account is ready. You can complete your profile from the dashboard.
+                  One last step: set up two-factor authentication to secure your account before entering the dashboard.
                 </p>
               </div>
               <Button
@@ -321,9 +329,9 @@ export default function RegisterPage() {
                 {submitting ? (
                   <span className="flex items-center gap-2">
                     <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                    Entering dashboard…
+                    Continuing…
                   </span>
-                ) : "Go to Dashboard"}
+                ) : "Continue to Security Setup"}
               </Button>
             </div>
           )}

@@ -76,6 +76,21 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    mfa_methods = relationship(
+        "MfaMethod",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    mfa_recovery_codes = relationship(
+        "MfaRecoveryCode",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    mfa_challenges = relationship(
+        "MfaChallenge",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class RefreshToken(Base):

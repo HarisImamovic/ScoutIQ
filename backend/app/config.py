@@ -17,16 +17,25 @@ class Settings(BaseSettings):
     gmail_app_password: str = ""
     frontend_url: str = "http://localhost:8080"
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
-    ai_system_prompt: str = "You are a professional AI scouting assistant for ScoutIQ. Answer only football scouting questions using the data provided. Decline all other requests."
+    groq_model: str = "openai/gpt-oss-120b"
+    ai_system_prompt: str = "You are a professional AI scouting assistant for ScoutIQ. Answer only football scouting questions using the data provided. Decline all other requests. Format responses in GitHub-flavored Markdown and use tables when listing or comparing players. When ranking players, compare values across the entire list and include all tied players."
     groq_request_timeout: int = 30
     ai_daily_request_limit: int = 50
     ai_requests_per_minute: int = 10
-    ai_max_players_context: int = 40
+    ai_max_players_context: int = 150
     ai_max_reports_context: int = 20
     ai_max_prospects_context: int = 30
     telegram_bot_token: str = ""
     telegram_bot_username: str = ""
+    mfa_enforced: bool = True
+    mfa_encryption_key: str = ""
+    mfa_token_expire_minutes: int = 10
+    mfa_challenge_expire_minutes: int = 5
+    mfa_challenge_max_attempts: int = 5
+    mfa_recovery_code_count: int = 10
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from_number: str = ""
 
     @property
     def origins_list(self) -> list[str]:

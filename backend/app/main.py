@@ -14,7 +14,7 @@ from starlette.responses import Response
 from app.bot import start_bot
 from app.config import get_settings
 from app.limiter import limiter
-from app.routers import auth, admin, club_admin, scout, player, highlights, notifications, ai, telegram
+from app.routers import auth, admin, club_admin, scout, player, highlights, notifications, ai, telegram, mfa
 from app.tasks import start_background_tasks
 
 settings = get_settings()
@@ -85,6 +85,7 @@ def health_check():
 
 
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(mfa.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(club_admin.router, prefix="/api/v1")
 app.include_router(scout.router, prefix="/api/v1")

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Bot, Send, Square, Trash2, User } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +22,26 @@ const INITIAL_MESSAGE: Message = {
 };
 
 const SESSION_KEY = "ai_chat_history";
+
+function AssistantMessage({ content }: { content: string }) {
+  return (
+    <div className="text-sm break-words prose prose-sm dark:prose-invert max-w-none prose-p:my-1.5 prose-p:leading-relaxed prose-headings:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-table:my-2 prose-th:px-3 prose-th:py-1.5 prose-th:text-left prose-td:px-3 prose-td:py-1.5 prose-tr:border-border prose-thead:border-border">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          table: (props) => (
+            <div className="overflow-x-auto">
+              <table {...props} />
+            </div>
+          ),
+          a: (props) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
 
 function loadMessages(): Message[] {
   try {
@@ -200,7 +222,11 @@ export default function AIAssistantPage() {
                       : "bg-card border border-border"
                   }`}
                 >
-                  <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
+                  {msg.role === "assistant" ? (
+                    <AssistantMessage content={msg.content} />
+                  ) : (
+                    <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
+                  )}
                 </div>
                 {msg.role === "user" && (
                   <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center shrink-0 mt-1">
@@ -220,7 +246,7 @@ export default function AIAssistantPage() {
                   <Bot className="w-4 h-4 text-secondary" />
                 </div>
                 <div className="rounded-xl px-4 py-3 bg-card border border-border">
-                  <p className="text-sm whitespace-pre-wrap">{pendingContent}</p>
+                  <AssistantMessage content={pendingContent} />
                 </div>
               </div>
             </div>
