@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.database import get_db
@@ -14,13 +14,14 @@ from app.models.club import Club
 from app.models.league import League
 from app.models.player import Player
 from app.models.report import ScoutingReport
-from app.models.user import User
+from app.models.user import RefreshToken, User
 from app.schemas.admin import (
     AdminClubItem,
     AdminLeagueItem,
     AdminPlayerItem,
     AdminReportItem,
     AdminUserItem,
+    AiAccessToggleRequest,
     BulkDeleteRequest,
     BulkDeleteResult,
     BulkImportResult,
@@ -38,6 +39,7 @@ from app.schemas.admin import (
     UpdateUserRequest,
 )
 from app.security import hash_password
+from app.utils.audit import record_audit
 from app.utils.notifications import create_notification, format_role, notify_global_admins
 from app.utils.telegram import send_report_notification
 from app.utils.uuid import parse_uuid
@@ -266,6 +268,7 @@ def list_users(
             club_id=str(user.club_id) if user.club_id else None,
             club_name=club_name,
             status=user.status,
+            ai_access=user.ai_access,
             created_at=user.created_at,
         )
         for user, club_name in rows
@@ -276,7 +279,8 @@ def list_users(
 @router.post("/users", response_model=AdminUserItem, status_code=status.HTTP_201_CREATED)
 def create_user(
     body: CreateUserRequest,
-    _: User = Depends(require_global_admin),
+    request: Request,
+    admin: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
     club_uuid = None
@@ -324,6 +328,11 @@ def create_user(
             f"{body.first_name.strip()} {body.last_name.strip()} was created as {format_role(body.role)}.",
         )
 
+        record_audit(
+            db, "user.create", actor=admin, target_type="user", target_id=new_user.id,
+            request=request, detail=f"Created {new_user.email} as {body.role}.",
+        )
+
         db.commit()
         db.refresh(new_user)
     except IntegrityError:
@@ -342,7 +351,70 @@ def create_user(
         club_id=str(club_uuid) if club_uuid else None,
         club_name=club.name if club else None,
         status=new_user.status,
+        ai_access=new_user.ai_access,
         created_at=new_user.created_at,
+    )
+
+
+@router.post("/users/{user_id}/ai-access", response_model=AdminUserItem)
+def set_ai_access(
+    user_id: str,
+    body: AiAccessToggleRequest,
+    request: Request,
+    admin: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    uid = parse_uuid(user_id, "user_id format")
+
+    user = db.query(User).filter(User.id == uid, User.deleted_at.is_(None)).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if user.role != "scout":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="AI access can only be granted to scouts.",
+        )
+
+    if user.ai_access != body.enabled:
+        user.ai_access = body.enabled
+        user.updated_at = datetime.now(timezone.utc)
+        record_audit(
+            db,
+            "ai_access.grant" if body.enabled else "ai_access.revoke",
+            actor=admin,
+            target_type="user",
+            target_id=user.id,
+            request=request,
+            detail=f"AI access {'granted' if body.enabled else 'revoked'} for {user.email}.",
+        )
+        create_notification(
+            db,
+            user.id,
+            "profile",
+            "AI Assistant Access " + ("Granted" if body.enabled else "Revoked"),
+            "You now have access to the AI Assistant."
+            if body.enabled
+            else "Your access to the AI Assistant has been revoked.",
+        )
+        db.commit()
+        db.refresh(user)
+
+    club_name = None
+    if user.club_id:
+        club = db.query(Club).filter(Club.id == user.club_id).first()
+        club_name = club.name if club else None
+
+    return AdminUserItem(
+        id=str(user.id),
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        role=user.role,
+        club_id=str(user.club_id) if user.club_id else None,
+        club_name=club_name,
+        status=user.status,
+        ai_access=user.ai_access,
+        created_at=user.created_at,
     )
 
 
@@ -970,7 +1042,8 @@ def create_report(
 def update_user(
     user_id: str,
     body: UpdateUserRequest,
-    _: User = Depends(require_global_admin),
+    request: Request,
+    admin: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
     uid = parse_uuid(user_id, "user_id format")
@@ -978,6 +1051,9 @@ def update_user(
     user = db.query(User).filter(User.id == uid, User.deleted_at.is_(None)).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    old_role = user.role
+    old_status = user.status
 
     new_email = body.email.lower()
     if user.email != new_email:
@@ -1005,6 +1081,16 @@ def update_user(
     user.status = body.status
     user.updated_at = datetime.now(timezone.utc)
 
+    if body.role != "scout" and user.ai_access:
+        user.ai_access = False
+
+    if body.role != old_role or body.status != old_status:
+        record_audit(
+            db, "user.update", actor=admin, target_type="user", target_id=user.id,
+            request=request,
+            detail=f"role {old_role}->{body.role}, status {old_status}->{body.status}.",
+        )
+
     player = db.query(Player).filter(Player.user_id == uid).first()
     if player:
         player.club_id = club_uuid
@@ -1024,6 +1110,7 @@ def update_user(
         club_id=str(club_uuid) if club_uuid else None,
         club_name=club.name if club else None,
         status=user.status,
+        ai_access=user.ai_access,
         created_at=user.created_at,
     )
 
@@ -1031,7 +1118,8 @@ def update_user(
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: str,
-    _: User = Depends(require_global_admin),
+    request: Request,
+    admin: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ) -> None:
     uid = parse_uuid(user_id, "user_id format")
@@ -1041,6 +1129,14 @@ def delete_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
     user.deleted_at = datetime.now(timezone.utc)
+    db.query(RefreshToken).filter(
+        RefreshToken.user_id == user.id,
+        RefreshToken.revoked.is_(False),
+    ).update({"revoked": True}, synchronize_session=False)
+    record_audit(
+        db, "user.delete", actor=admin, target_type="user", target_id=user.id,
+        request=request, detail=f"Soft-deleted {user.email}; sessions revoked.",
+    )
     db.commit()
 
 

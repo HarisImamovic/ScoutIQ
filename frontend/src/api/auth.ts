@@ -37,6 +37,7 @@ export interface AuthUser {
   club_id: string | null;
   avatar_url: string | null;
   status: string;
+  ai_access: boolean;
   last_login_at: string | null;
   created_at: string;
   has_password: boolean;

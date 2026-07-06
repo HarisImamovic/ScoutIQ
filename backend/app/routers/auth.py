@@ -4,7 +4,7 @@ import hashlib
 import secrets
 
 import requests as http_requests
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy.orm import Session
@@ -33,6 +33,7 @@ from app.schemas.auth import (
     UpdateProfileRequest,
 )
 from app.schemas.user import UserResponse
+from app.utils.audit import record_audit
 from app.utils.mfa import sms_available
 from app.utils.notifications import create_notification, format_role, notify_global_admins
 from app.security import (
@@ -130,7 +131,8 @@ def _issue_tokens(user: User, db: Session, response: Response) -> AccessTokenRes
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def register(request: Request, payload: RegisterRequest, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -163,9 +165,26 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         f"{payload.first_name} {payload.last_name} registered as {format_role(payload.role)}.",
     )
 
+    record_audit(
+        db,
+        "user.register",
+        actor_id=user.id,
+        actor_email=user.email,
+        target_type="user",
+        target_id=user.id,
+        request=request,
+        detail=f"Self-registered as {payload.role}.",
+    )
+
     db.commit()
     db.refresh(user)
     return user
+
+
+_INVALID_CREDENTIALS = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Invalid email or password.",
+)
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -177,13 +196,49 @@ def login(request: Request, payload: LoginRequest, response: Response, db: Sessi
         .first()
     )
 
-    if not user or not user.password_hash or not verify_password(payload.password, user.password_hash):
+    now = datetime.now(timezone.utc)
+
+    if user and user.locked_until and user.locked_until > now:
+        record_audit(
+            db, "login.blocked_locked", actor=user, target_type="user", target_id=user.id,
+            request=request, detail="Login attempt while account is locked.", commit=True,
+        )
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account temporarily locked due to repeated failed logins. Try again later.",
         )
 
+    if not user or not user.password_hash or not verify_password(payload.password, user.password_hash):
+        if user:
+            user.failed_login_count = (user.failed_login_count or 0) + 1
+            locked = False
+            if user.failed_login_count >= settings.login_max_failed_attempts:
+                user.locked_until = now + timedelta(minutes=settings.login_lockout_minutes)
+                user.failed_login_count = 0
+                locked = True
+            record_audit(
+                db, "login.failed", actor=user, target_type="user", target_id=user.id,
+                request=request,
+                detail="Account locked after repeated failures." if locked else "Invalid password.",
+            )
+            db.commit()
+        else:
+            record_audit(
+                db, "login.failed", actor_email=payload.email, request=request,
+                detail="Unknown email.", commit=True,
+            )
+        raise _INVALID_CREDENTIALS
+
     _assert_account_active(user)
+
+    if user.failed_login_count or user.locked_until:
+        user.failed_login_count = 0
+        user.locked_until = None
+
+    record_audit(
+        db, "login.password_ok", actor=user, target_type="user", target_id=user.id,
+        request=request, commit=True,
+    )
     return _mfa_gate(user, db, response)
 
 
@@ -343,6 +398,10 @@ def change_password(
         RefreshToken.user_id == current_user.id,
         RefreshToken.revoked.is_(False),
     ).update({"revoked": True}, synchronize_session=False)
+    record_audit(
+        db, "password.change", actor=current_user, target_type="user",
+        target_id=current_user.id, detail="Password changed; sessions revoked.",
+    )
     db.commit()
 
 
@@ -354,6 +413,7 @@ _RESET_GENERIC = {"message": "If an account with that email exists, a password r
 def forgot_password(
     request: Request,
     payload: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     user = (
@@ -384,12 +444,16 @@ def forgot_password(
 
     reset_link = f"{settings.frontend_url}/reset-password?token={raw_token}"
 
-    try:
-        send_password_reset_email(to_email=user.email, reset_link=reset_link)
-    except Exception:
-        logger.exception("Failed to send password reset email to %s", user.email)
+    background_tasks.add_task(_send_reset_email_safe, user.email, reset_link)
 
     return _RESET_GENERIC
+
+
+def _send_reset_email_safe(to_email: str, reset_link: str) -> None:
+    try:
+        send_password_reset_email(to_email=to_email, reset_link=reset_link)
+    except Exception:
+        logger.exception("Failed to send password reset email to %s", to_email)
 
 
 @router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
@@ -428,6 +492,14 @@ def reset_password(
     user.password_hash = hash_password(payload.new_password)
     user.updated_at = datetime.now(timezone.utc)
     record.used = True
+    db.query(RefreshToken).filter(
+        RefreshToken.user_id == user.id,
+        RefreshToken.revoked.is_(False),
+    ).update({"revoked": True}, synchronize_session=False)
+    record_audit(
+        db, "password.reset", actor=user, target_type="user", target_id=user.id,
+        request=request, detail="Password reset via emailed token; sessions revoked.",
+    )
     db.commit()
 
 
@@ -531,6 +603,12 @@ def google_callback(
                 "profile",
                 "New User Registered",
                 f"{first_name} {last_name} registered via Google as {format_role('scout')}.",
+            )
+
+            record_audit(
+                db, "user.register_google", actor_id=user.id, actor_email=user.email,
+                target_type="user", target_id=user.id, request=request,
+                detail="Auto-created scout account via Google SSO.",
             )
 
             db.commit()

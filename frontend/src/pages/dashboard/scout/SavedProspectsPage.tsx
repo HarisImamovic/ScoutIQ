@@ -57,7 +57,7 @@ export default function SavedProspectsPage() {
     mutationFn: scoutApi.unsaveProspect,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["scout-saved-prospects"] });
-      qc.invalidateQueries({ queryKey: ["scout-players"] });
+      qc.invalidateQueries({ queryKey: ["players-browse"] });
       qc.invalidateQueries({ queryKey: ["scout-dashboard"] });
       toast.success("Player unsaved.");
     },

@@ -1,12 +1,13 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import require_role
+from app.limiter import limiter
 from app.models.club import Club
 from app.models.player import Player
 from app.models.player_view import PlayerView
@@ -295,8 +296,10 @@ def list_saved_prospects(
 
 
 @router.post("/saved-prospects/{player_id}", status_code=status.HTTP_201_CREATED)
+@limiter.limit("60/minute")
 def save_prospect(
     player_id: str,
+    request: Request,
     scout: User = Depends(_require_scout),
     db: Session = Depends(get_db),
 ):
@@ -413,8 +416,10 @@ def list_reports(
 
 
 @router.post("/reports", response_model=ScoutReportItem, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 def create_report(
     body: CreateScoutReportRequest,
+    request: Request,
     scout: User = Depends(_require_scout),
     db: Session = Depends(get_db),
 ):

@@ -18,9 +18,66 @@ export type StreamEvent =
   | { done: true; remaining: number }
   | { error: "rate_limit" | "timeout" | "service_unavailable" };
 
-export async function getAiUsage(): Promise<AiUsage> {
-  const { data } = await client.get<AiUsage>("/ai/usage");
+export class AiAccessDeniedError extends Error {
+  constructor(public detail: string) {
+    super(detail);
+    this.name = "AiAccessDeniedError";
+  }
+}
+
+export interface AiAccessRequestMine {
+  id: string | null;
+  status: "pending" | "approved" | "rejected" | null;
+  message: string | null;
+  created_at: string | null;
+}
+
+export interface AiAccessRequestDetail {
+  id: string;
+  requester_name: string;
+  requester_email: string;
+  message: string;
+  status: string;
+  created_at: string;
+}
+
+export async function getMyAiAccessRequest(): Promise<AiAccessRequestMine> {
+  const { data } = await client.get<AiAccessRequestMine>("/ai/access-requests/mine");
   return data;
+}
+
+export async function requestAiAccess(message: string): Promise<AiAccessRequestMine> {
+  const { data } = await client.post<AiAccessRequestMine>("/ai/access-requests", { message });
+  return data;
+}
+
+export async function getAiAccessRequest(id: string): Promise<AiAccessRequestDetail> {
+  const { data } = await client.get<AiAccessRequestDetail>(`/ai/access-requests/${id}`);
+  return data;
+}
+
+export async function reviewAiAccessRequest(
+  id: string,
+  action: "approve" | "reject",
+): Promise<AiAccessRequestDetail> {
+  const { data } = await client.post<AiAccessRequestDetail>(`/ai/access-requests/${id}/${action}`);
+  return data;
+}
+
+export async function getAiUsage(): Promise<AiUsage> {
+  try {
+    const { data } = await client.get<AiUsage>("/ai/usage");
+    return data;
+  } catch (err: unknown) {
+    const e = err as { response?: { status?: number; data?: { detail?: string } } };
+    if (e.response?.status === 403) {
+      throw new AiAccessDeniedError(
+        e.response.data?.detail ??
+          "AI access has not been enabled for your account.",
+      );
+    }
+    throw err;
+  }
 }
 
 async function* _doStream(

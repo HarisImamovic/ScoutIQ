@@ -13,8 +13,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Star, FileText, UserCircle, Bell, AlertCircle, Check, X } from "lucide-react";
+import { Star, FileText, UserCircle, Bell, AlertCircle, Check, X, Bot } from "lucide-react";
 import { notificationsApi, type NotificationItem } from "@/api/notifications";
+import { getAiAccessRequest, reviewAiAccessRequest } from "@/api/ai";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatDistanceToNow } from "date-fns";
 
@@ -101,6 +102,98 @@ function VideoReviewModal({
   );
 }
 
+function AccessRequestModal({
+  requestId,
+  onClose,
+  onReviewed,
+}: {
+  requestId: string;
+  onClose: () => void;
+  onReviewed: () => void;
+}) {
+  const [acting, setActing] = useState(false);
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["ai-access-request", requestId],
+    queryFn: () => getAiAccessRequest(requestId),
+    staleTime: 0,
+  });
+
+  const handle = async (action: "approve" | "reject") => {
+    setActing(true);
+    try {
+      await reviewAiAccessRequest(requestId, action);
+      toast.success(action === "approve" ? "AI access approved." : "Request declined.");
+      onReviewed();
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { detail?: string } } };
+      const detail = e.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Failed to update the request.");
+      if (e.response?.status === 409) onReviewed();
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const alreadyReviewed = data && data.status !== "pending";
+
+  return (
+    <Dialog open onOpenChange={() => !acting && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="font-display">AI Access Request</DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Spinner size="md" />
+          </div>
+        ) : isError || !data ? (
+          <p className="text-sm text-muted-foreground py-4">
+            This request could not be loaded. It may have been removed.
+          </p>
+        ) : (
+          <div className="space-y-3 py-2">
+            <div>
+              <p className="text-xs text-muted-foreground">Requested by</p>
+              <p className="font-medium text-sm">{data.requester_name}</p>
+              <p className="text-xs text-muted-foreground">{data.requester_email}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Message</p>
+              <div className="rounded-lg bg-muted/50 p-3 text-sm whitespace-pre-wrap break-words max-h-52 overflow-y-auto">
+                {data.message}
+              </div>
+            </div>
+            {alreadyReviewed && (
+              <Badge variant="outline" className="text-muted-foreground">
+                Already {data.status}
+              </Badge>
+            )}
+          </div>
+        )}
+        <DialogFooter className="gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={acting}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => handle("reject")}
+            disabled={acting || isLoading || !!alreadyReviewed || isError}
+          >
+            {acting ? <Spinner size="sm" /> : <><X className="w-4 h-4 mr-1.5" />Reject</>}
+          </Button>
+          <Button
+            variant="hero"
+            onClick={() => handle("approve")}
+            disabled={acting || isLoading || !!alreadyReviewed || isError}
+          >
+            {acting ? <Spinner size="sm" /> : <><Check className="w-4 h-4 mr-1.5" />Approve</>}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function NotificationsPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -109,6 +202,7 @@ export default function NotificationsPage() {
     embedUrl: string;
     title: string | null;
   } | null>(null);
+  const [accessRequestId, setAccessRequestId] = useState<string | null>(null);
 
   const { data: notifications = [], isLoading, isError } = useQuery({
     queryKey: ["notifications"],
@@ -210,6 +304,12 @@ export default function NotificationsPage() {
               n.action_data?.highlight_status === "pending" &&
               n.action_data?.highlight_id;
 
+            const hasAccessRequestAction =
+              isGlobalAdmin &&
+              n.action_data?.type === "ai_access_request" &&
+              n.action_data?.request_status === "pending" &&
+              n.action_data?.request_id;
+
             return (
               <Card key={n.id} className="hover-lift">
                 <CardContent className="pt-5 flex items-start gap-4">
@@ -242,6 +342,16 @@ export default function NotificationsPage() {
                         View &amp; Review
                       </Button>
                     )}
+                    {hasAccessRequestAction && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-3"
+                        onClick={() => setAccessRequestId(n.action_data!.request_id)}
+                      >
+                        <Bot className="w-4 h-4 mr-1.5" /> Review Request
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -267,6 +377,17 @@ export default function NotificationsPage() {
             reviewMutation.mutate({ id: videoModal.highlightId, status: "rejected" })
           }
           isPending={reviewMutation.isPending}
+        />
+      )}
+
+      {accessRequestId && (
+        <AccessRequestModal
+          requestId={accessRequestId}
+          onClose={() => setAccessRequestId(null)}
+          onReviewed={() => {
+            setAccessRequestId(null);
+            qc.invalidateQueries({ queryKey: ["notifications"] });
+          }}
         />
       )}
     </div>

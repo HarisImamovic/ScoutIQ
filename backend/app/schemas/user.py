@@ -14,6 +14,7 @@ class UserResponse(BaseModel):
     club_id: UUID | None
     avatar_url: str | None
     status: str
+    ai_access: bool = False
     last_login_at: datetime | None
     created_at: datetime
     has_password: bool = True
@@ -28,7 +29,8 @@ class UserResponse(BaseModel):
                 k: getattr(data, k, None)
                 for k in [
                     "id", "email", "first_name", "last_name", "role",
-                    "club_id", "avatar_url", "status", "last_login_at", "created_at",
+                    "club_id", "avatar_url", "status", "ai_access",
+                    "last_login_at", "created_at",
                 ]
             } | {"has_password": bool(data.password_hash)}
         return data

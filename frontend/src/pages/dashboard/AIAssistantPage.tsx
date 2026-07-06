@@ -3,12 +3,28 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Bot, Send, Square, Trash2, User } from "lucide-react";
+import { Bot, Lock, Send, Square, Trash2, User } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
-import { getAiUsage, streamChatMessage, type AiHistoryMessage } from "@/api/ai";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AiAccessDeniedError,
+  getAiUsage,
+  getMyAiAccessRequest,
+  requestAiAccess,
+  streamChatMessage,
+  type AiHistoryMessage,
+} from "@/api/ai";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Message {
   role: "user" | "assistant";
@@ -66,11 +82,60 @@ export default function AIAssistantPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
 
-  const { data: usage } = useQuery({
+  const { user, refreshUser } = useAuth();
+  const hasAccessFlag = user?.ai_access === true;
+
+  useEffect(() => {
+    refreshUser().catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const { data: usage, error: usageError } = useQuery({
     queryKey: ["ai-usage"],
     queryFn: getAiUsage,
+    enabled: hasAccessFlag,
     staleTime: 0,
   });
+
+  const accessDenied = !hasAccessFlag || usageError instanceof AiAccessDeniedError;
+
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestMsg, setRequestMsg] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const { data: myRequest, refetch: refetchMine } = useQuery({
+    queryKey: ["ai-access-request-mine"],
+    queryFn: getMyAiAccessRequest,
+    enabled: accessDenied,
+    staleTime: 0,
+  });
+  const requestPending = myRequest?.status === "pending";
+
+  useEffect(() => {
+    if (accessDenied) {
+      sessionStorage.removeItem(SESSION_KEY);
+      setMessages([INITIAL_MESSAGE]);
+    }
+  }, [accessDenied]);
+
+  const handleRequestSubmit = async () => {
+    const msg = requestMsg.trim();
+    if (msg.length < 1) return;
+    setSubmitting(true);
+    try {
+      await requestAiAccess(msg);
+      toast.success("Your access request has been sent to the admins.");
+      setRequestOpen(false);
+      setRequestMsg("");
+      refetchMine();
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { detail?: string } } };
+      const detail = e.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Failed to send request. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     if (usage) setDailyRemaining(usage.remaining);
@@ -172,6 +237,72 @@ export default function AIAssistantPage() {
   const dailyLimit = usage?.daily_limit ?? null;
   const dailyUsed = dailyLimit !== null && dailyRemaining !== null ? dailyLimit - dailyRemaining : null;
   const atLimit = dailyRemaining === 0;
+
+  if (accessDenied) {
+    return (
+      <>
+        <div className="flex flex-col items-center justify-center h-[calc(100vh-8rem)] text-center px-4">
+          <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
+            <Lock className="w-7 h-7 text-muted-foreground" />
+          </div>
+          <h1 className="text-2xl font-display font-bold mb-2">AI Assistant Locked</h1>
+          <p className="text-muted-foreground max-w-md mb-6">
+            Your account does not yet have access to the AI Assistant. Request access from a
+            Global Admin below.
+          </p>
+          {requestPending ? (
+            <Badge variant="outline" className="text-muted-foreground">
+              Request pending review
+            </Badge>
+          ) : (
+            <Button variant="hero" onClick={() => setRequestOpen(true)}>
+              Request AI Access
+            </Button>
+          )}
+          {myRequest?.status === "rejected" && (
+            <p className="text-xs text-muted-foreground mt-3">
+              Your previous request was declined. You may submit a new one.
+            </p>
+          )}
+        </div>
+
+        <Dialog open={requestOpen} onOpenChange={(o) => !submitting && setRequestOpen(o)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-display">Request AI Access</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2 py-2">
+              <p className="text-sm text-muted-foreground">
+                Tell the admins why you need access to the AI Assistant. Your message will be
+                sent to the Global Admins for review.
+              </p>
+              <Textarea
+                value={requestMsg}
+                onChange={(e) => setRequestMsg(e.target.value.slice(0, 1000))}
+                maxLength={1000}
+                rows={5}
+                placeholder="I'd like AI access to help analyse players for…"
+                className="bg-muted/50 resize-none"
+              />
+              <div className="flex justify-end">
+                <span className={`text-xs ${requestMsg.length >= 1000 ? "text-destructive" : "text-muted-foreground"}`}>
+                  {requestMsg.length}/1000
+                </span>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setRequestOpen(false)} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button variant="hero" onClick={handleRequestSubmit} disabled={submitting || !requestMsg.trim()}>
+                {submitting ? <Spinner size="sm" /> : "Send Request"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">

@@ -48,7 +48,12 @@ class AdminUserItem(BaseModel):
     club_id: Optional[str] = None
     club_name: Optional[str] = None
     status: str
+    ai_access: bool = False
     created_at: datetime
+
+
+class AiAccessToggleRequest(BaseModel):
+    enabled: bool
 
 
 class AdminClubItem(BaseModel):

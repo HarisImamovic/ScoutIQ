@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user
+from app.models.ai_access_request import AiAccessRequest
 from app.models.notification import Notification
 from app.models.player_highlight import PlayerHighlight
 from app.models.user import User
@@ -33,10 +34,18 @@ def get_notifications(
     )
 
     highlight_ids: list[_uuid.UUID] = []
+    access_request_ids: list[_uuid.UUID] = []
     for n in rows:
-        if n.action_data and n.action_data.get("highlight_id"):
+        if not n.action_data:
+            continue
+        if n.action_data.get("highlight_id"):
             try:
                 highlight_ids.append(_uuid.UUID(n.action_data["highlight_id"]))
+            except (ValueError, AttributeError):
+                pass
+        if n.action_data.get("type") == "ai_access_request" and n.action_data.get("request_id"):
+            try:
+                access_request_ids.append(_uuid.UUID(n.action_data["request_id"]))
             except (ValueError, AttributeError):
                 pass
 
@@ -45,12 +54,19 @@ def get_notifications(
         for h in db.query(PlayerHighlight).filter(PlayerHighlight.id.in_(highlight_ids)).all():
             highlight_status_map[str(h.id)] = h.status
 
+    access_request_status_map: dict[str, str] = {}
+    if access_request_ids:
+        for r in db.query(AiAccessRequest).filter(AiAccessRequest.id.in_(access_request_ids)).all():
+            access_request_status_map[str(r.id)] = r.status
+
     result = []
     for n in rows:
         data = dict(n.action_data) if n.action_data else None
         if data and data.get("highlight_id"):
             hid = data["highlight_id"]
             data["highlight_status"] = highlight_status_map.get(hid, "deleted")
+        if data and data.get("type") == "ai_access_request" and data.get("request_id"):
+            data["request_status"] = access_request_status_map.get(data["request_id"], "deleted")
         result.append(
             NotificationResponse(
                 id=str(n.id),
