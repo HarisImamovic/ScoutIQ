@@ -18,6 +18,16 @@ export interface TokenPair {
   token_type: string;
 }
 
+export interface LoginResponse {
+  access_token: string | null;
+  token_type: string;
+  mfa_required: boolean;
+  mfa_setup_required: boolean;
+  mfa_token: string | null;
+  methods: string[];
+  sms_available: boolean;
+}
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -27,6 +37,7 @@ export interface AuthUser {
   club_id: string | null;
   avatar_url: string | null;
   status: string;
+  ai_access: boolean;
   last_login_at: string | null;
   created_at: string;
   has_password: boolean;
@@ -43,7 +54,7 @@ export const authApi = {
     client.post<AuthUser>("/auth/register", payload),
 
   login: (payload: LoginPayload) =>
-    client.post<TokenPair>("/auth/login", payload),
+    client.post<LoginResponse>("/auth/login", payload),
 
   logout: () =>
     client.post("/auth/logout"),
@@ -63,7 +74,7 @@ export const authApi = {
     }),
 
   googleCallback: (code: string, codeVerifier: string) =>
-    client.post<TokenPair>("/auth/google/callback", {
+    client.post<LoginResponse>("/auth/google/callback", {
       code,
       code_verifier: codeVerifier,
     }),

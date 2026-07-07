@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Users, Eye, EyeOff, Check, AlertCircle, CheckCircle } from "lucide-react";
+import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Users, Eye, EyeOff, Check, AlertCircle, CheckCircle, Bot } from "lucide-react";
 import client from "@/api/client";
 
 interface User {
@@ -29,6 +29,7 @@ interface User {
   club_id: string | null;
   club_name: string | null;
   status: string;
+  ai_access: boolean;
   created_at: string;
 }
 
@@ -112,6 +113,8 @@ export default function AdminUsersPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [viewTarget, setViewTarget] = useState<User | null>(null);
+  const [aiTarget, setAiTarget] = useState<User | null>(null);
+  const [aiSaving, setAiSaving] = useState(false);
 
   useEffect(() => {
     client.get<{ items: User[]; total: number }>("/admin/users")
@@ -207,6 +210,17 @@ export default function AdminUsersPage() {
       header: "Actions",
       cell: ({ row }) => (
         <div className="flex gap-1">
+          {row.original.role === "scout" && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className={`h-8 w-8 ${row.original.ai_access ? "text-secondary" : "text-muted-foreground"}`}
+              title={row.original.ai_access ? "Revoke AI access" : "Grant AI access"}
+              onClick={() => setAiTarget(row.original)}
+            >
+              <Bot className="w-4 h-4" />
+            </Button>
+          )}
           <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openView(row.original)}><Eye className="w-4 h-4" /></Button>
           <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(row.original)}><Edit2 className="w-4 h-4" /></Button>
           <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(row.original.id)} disabled={Object.keys(rowSelection).length > 0}><Trash2 className="w-4 h-4" /></Button>
@@ -317,6 +331,26 @@ export default function AdminUsersPage() {
       else toast.error("Failed to create user.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const confirmAiToggle = async () => {
+    if (!aiTarget) return;
+    const u = aiTarget;
+    const next = !u.ai_access;
+    setAiSaving(true);
+    setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, ai_access: next } : x)));
+    try {
+      const { data } = await client.post<User>(`/admin/users/${u.id}/ai-access`, { enabled: next });
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, ai_access: data.ai_access } : x)));
+      toast.success(next ? "AI access granted." : "AI access revoked.");
+      setAiTarget(null);
+    } catch (err: any) {
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, ai_access: !next } : x)));
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Failed to update AI access.");
+    } finally {
+      setAiSaving(false);
     }
   };
 
@@ -434,6 +468,17 @@ export default function AdminUsersPage() {
                   <p className="text-xs text-muted-foreground truncate max-w-[180px]">{u.email}</p>
                 </div>
                 <div className="flex gap-1 shrink-0">
+                  {u.role === "scout" && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`h-8 w-8 ${u.ai_access ? "text-secondary" : "text-muted-foreground"}`}
+                      title={u.ai_access ? "Revoke AI access" : "Grant AI access"}
+                      onClick={() => setAiTarget(u)}
+                    >
+                      <Bot className="w-4 h-4" />
+                    </Button>
+                  )}
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openView(u)}><Eye className="w-4 h-4" /></Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(u)}><Edit2 className="w-4 h-4" /></Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(u.id)} disabled={selectedIds.length > 0}><Trash2 className="w-4 h-4" /></Button>
@@ -689,6 +734,42 @@ export default function AdminUsersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={aiTarget !== null} onOpenChange={(o) => { if (!o && !aiSaving) setAiTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Bot className="w-5 h-5 text-secondary" />
+              {aiTarget?.ai_access ? "Revoke AI access" : "Grant AI access"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {aiTarget?.ai_access ? (
+                <>
+                  Revoke AI Assistant access from{" "}
+                  <span className="font-medium text-foreground">{aiTarget?.first_name} {aiTarget?.last_name}</span>?
+                  They will lose access to the AI Assistant immediately.
+                </>
+              ) : (
+                <>
+                  Grant AI Assistant access to{" "}
+                  <span className="font-medium text-foreground">{aiTarget?.first_name} {aiTarget?.last_name}</span>?
+                  They will be able to use the AI Assistant, which draws on the shared daily AI quota.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={aiSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); confirmAiToggle(); }}
+              disabled={aiSaving}
+              className={aiTarget?.ai_access ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
+            >
+              {aiSaving ? "Saving…" : aiTarget?.ai_access ? "Revoke Access" : "Grant Access"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={deleteId !== null} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>

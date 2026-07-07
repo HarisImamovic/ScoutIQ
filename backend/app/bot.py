@@ -60,6 +60,16 @@ async def _handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
+def _build_application(token: str) -> Application:
+    application = Application.builder().token(token).build()
+    application.add_handler(CommandHandler("start", _handle_start))
+    return application
+
+
+# ---------------------------------------------------------------------------
+# Polling mode (development): a dedicated event loop in a daemon thread.
+# ---------------------------------------------------------------------------
+
 def _run_in_thread(token: str) -> None:
     global _app, _bot_loop
 
@@ -68,8 +78,7 @@ def _run_in_thread(token: str) -> None:
 
     async def _run() -> None:
         global _app
-        _app = Application.builder().token(token).build()
-        _app.add_handler(CommandHandler("start", _handle_start))
+        _app = _build_application(token)
         await _app.initialize()
         await _app.start()
         await _app.updater.start_polling(drop_pending_updates=True)
@@ -79,12 +88,58 @@ def _run_in_thread(token: str) -> None:
 
 
 def start_bot() -> None:
+    """Start the bot in polling mode (used in dev). No-op in webhook mode."""
     settings = get_settings()
-    if not settings.telegram_bot_token:
+    if not settings.telegram_bot_token or settings.telegram_webhook_enabled:
         return
     thread = threading.Thread(target=_run_in_thread, args=(settings.telegram_bot_token,), daemon=True)
     thread.start()
 
+
+# ---------------------------------------------------------------------------
+# Webhook mode (production): the Application shares the FastAPI event loop and
+# updates are delivered by Telegram to the /telegram/webhook endpoint.
+# ---------------------------------------------------------------------------
+
+async def start_webhook(token: str, webhook_url: str, secret: str) -> None:
+    global _app, _bot_loop
+
+    _bot_loop = asyncio.get_running_loop()
+    _app = _build_application(token)
+    await _app.initialize()
+    await _app.start()
+    await _app.bot.set_webhook(
+        url=webhook_url,
+        secret_token=secret or None,
+        allowed_updates=["message"],
+        drop_pending_updates=True,
+    )
+    logger.info("Telegram webhook registered at %s", webhook_url)
+
+
+async def stop_webhook() -> None:
+    global _app
+    if _app is None:
+        return
+    try:
+        if _app.running:
+            await _app.stop()
+        await _app.shutdown()
+    except Exception:
+        logger.exception("Failed to shut down Telegram application cleanly")
+    _app = None
+
+
+async def process_webhook_update(data: dict) -> None:
+    if _app is None:
+        return
+    update = Update.de_json(data, _app.bot)
+    await _app.update_queue.put(update)
+
+
+# ---------------------------------------------------------------------------
+# Outbound messages (works in both modes; called from sync background tasks).
+# ---------------------------------------------------------------------------
 
 def send_message(chat_id: str, text: str) -> None:
     if not _app or not _bot_loop:

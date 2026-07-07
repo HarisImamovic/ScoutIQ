@@ -52,6 +52,30 @@ def decode_access_token(token: str) -> dict:
     )
 
 
+def create_mfa_token(subject: str, purpose: str) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": subject,
+        "type": f"mfa_{purpose}",
+        "iat": now,
+        "exp": now + timedelta(minutes=settings.mfa_token_expire_minutes),
+        "jti": str(uuid.uuid4()),
+    }
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def decode_mfa_token(token: str, purpose: str) -> dict:
+    payload = jwt.decode(
+        token,
+        settings.jwt_secret_key,
+        algorithms=[settings.jwt_algorithm],
+        options={"require": ["sub", "exp", "iat", "type"]},
+    )
+    if payload.get("type") != f"mfa_{purpose}":
+        raise jwt.InvalidTokenError("Unexpected token type.")
+    return payload
+
+
 def create_refresh_token() -> tuple[str, str]:
     raw = secrets.token_urlsafe(64)
     hashed = _sha256(raw)

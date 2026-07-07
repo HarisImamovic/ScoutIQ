@@ -38,7 +38,18 @@ export default function GoogleCallbackPage() {
       return;
     }
 
-    loginWithGoogle(code, codeVerifier).catch((err) => {
+    loginWithGoogle(code, codeVerifier).then((outcome) => {
+      if (outcome.status === "mfa_required") {
+        navigate("/login/verify", { state: outcome, replace: true });
+        return;
+      }
+      if (outcome.status === "mfa_setup_required") {
+        navigate("/mfa-setup", { state: outcome, replace: true });
+        return;
+      }
+      toast.success("Logged in successfully.");
+      navigate("/dashboard", { replace: true });
+    }).catch((err) => {
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
         const detail = err.response?.data?.detail;

@@ -3,6 +3,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from app.security import validate_password_strength
 
 _VALID_ROLES = {"player", "scout", "club_admin", "global_admin"}
+_SELF_REGISTER_ROLES = {"player", "scout", "club_admin"}
 
 
 class RegisterRequest(BaseModel):
@@ -25,8 +26,8 @@ class RegisterRequest(BaseModel):
     @field_validator("role")
     @classmethod
     def role_is_valid(cls, v: str) -> str:
-        if v not in _VALID_ROLES:
-            raise ValueError(f"Role must be one of: {', '.join(sorted(_VALID_ROLES))}.")
+        if v not in _SELF_REGISTER_ROLES:
+            raise ValueError(f"Role must be one of: {', '.join(sorted(_SELF_REGISTER_ROLES))}.")
         return v
 
     @field_validator("first_name", "last_name")
@@ -79,6 +80,16 @@ class LoginRequest(BaseModel):
 class AccessTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class LoginResponse(BaseModel):
+    access_token: str | None = None
+    token_type: str = "bearer"
+    mfa_required: bool = False
+    mfa_setup_required: bool = False
+    mfa_token: str | None = None
+    methods: list[str] = []
+    sms_available: bool = False
 
 
 class GoogleCallbackRequest(BaseModel):

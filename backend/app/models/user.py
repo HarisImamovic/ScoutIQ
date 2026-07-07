@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, String
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -31,6 +31,9 @@ class User(Base):
     telegram_chat_id = Column(String(50), nullable=True)
     telegram_link_code = Column(String(100), nullable=True)
     telegram_link_code_expires_at = Column(DateTime(timezone=True), nullable=True)
+    ai_access = Column(Boolean, nullable=False, default=False)
+    failed_login_count = Column(Integer, nullable=False, default=0)
+    locked_until = Column(DateTime(timezone=True), nullable=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True),
@@ -73,6 +76,21 @@ class User(Base):
     )
     notifications = relationship(
         "Notification",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    mfa_methods = relationship(
+        "MfaMethod",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    mfa_recovery_codes = relationship(
+        "MfaRecoveryCode",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    mfa_challenges = relationship(
+        "MfaChallenge",
         back_populates="user",
         cascade="all, delete-orphan",
     )

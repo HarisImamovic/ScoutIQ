@@ -7,12 +7,18 @@ import { useRole } from "@/contexts/RoleContext";
 import type { UserRole } from "@/contexts/RoleContext";
 import { toast } from "sonner";
 
+export type LoginOutcome =
+  | { status: "ok" }
+  | { status: "mfa_required"; mfaToken: string; methods: string[] }
+  | { status: "mfa_setup_required"; mfaToken: string; smsAvailable: boolean };
+
 interface AuthContextType {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  loginWithGoogle: (code: string, codeVerifier: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<LoginOutcome>;
+  loginWithGoogle: (code: string, codeVerifier: string) => Promise<LoginOutcome>;
+  completeMfaLogin: (accessToken: string) => Promise<void>;
   logout: () => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -44,24 +50,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     restoreSession();
   }, []);
 
-  const login = async (email: string, password: string) => {
-    queryClient.clear();
-    const { data: tokens } = await authApi.login({ email, password });
-    setAccessToken(tokens.access_token);
+  const finishLogin = async (accessToken: string) => {
+    setAccessToken(accessToken);
     const { data: me } = await authApi.me();
     setUser(me);
     setRole(me.role as UserRole);
   };
 
-  const loginWithGoogle = async (code: string, codeVerifier: string) => {
+  const login = async (email: string, password: string): Promise<LoginOutcome> => {
     queryClient.clear();
-    const { data: tokens } = await authApi.googleCallback(code, codeVerifier);
-    setAccessToken(tokens.access_token);
-    const { data: me } = await authApi.me();
-    setUser(me);
-    setRole(me.role as UserRole);
-    toast.success("Logged in successfully.");
-    navigate("/dashboard", { replace: true });
+    const { data } = await authApi.login({ email, password });
+    if (data.mfa_required && data.mfa_token) {
+      return { status: "mfa_required", mfaToken: data.mfa_token, methods: data.methods };
+    }
+    if (data.mfa_setup_required && data.mfa_token) {
+      return { status: "mfa_setup_required", mfaToken: data.mfa_token, smsAvailable: data.sms_available };
+    }
+    await finishLogin(data.access_token!);
+    return { status: "ok" };
+  };
+
+  const loginWithGoogle = async (code: string, codeVerifier: string): Promise<LoginOutcome> => {
+    queryClient.clear();
+    const { data } = await authApi.googleCallback(code, codeVerifier);
+    if (data.mfa_required && data.mfa_token) {
+      return { status: "mfa_required", mfaToken: data.mfa_token, methods: data.methods };
+    }
+    if (data.mfa_setup_required && data.mfa_token) {
+      return { status: "mfa_setup_required", mfaToken: data.mfa_token, smsAvailable: data.sms_available };
+    }
+    await finishLogin(data.access_token!);
+    return { status: "ok" };
+  };
+
+  const completeMfaLogin = async (accessToken: string) => {
+    queryClient.clear();
+    await finishLogin(accessToken);
   };
 
   const logout = async () => {
@@ -85,7 +109,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, isAuthenticated: !!user, isLoading, login, loginWithGoogle, logout, register, refreshUser }}
+      value={{
+        user,
+        isAuthenticated: !!user,
+        isLoading,
+        login,
+        loginWithGoogle,
+        completeMfaLogin,
+        logout,
+        register,
+        refreshUser,
+      }}
     >
       {children}
     </AuthContext.Provider>

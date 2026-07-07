@@ -13,6 +13,7 @@ from datetime import date
 from app.database import SessionLocal
 import app.models.club  # noqa: F401
 import app.models.league  # noqa: F401
+import app.models.mfa  # noqa: F401
 import app.models.notification  # noqa: F401
 import app.models.password_reset_token  # noqa: F401
 import app.models.player  # noqa: F401

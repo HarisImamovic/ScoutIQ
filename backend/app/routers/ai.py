@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from groq import APIConnectionError, APIStatusError, APITimeoutError, Groq, RateLimitError
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
@@ -26,6 +27,16 @@ logger = logging.getLogger(__name__)
 
 _REPORT_STATUSES = ("submitted", "approved", "rejected")
 _MAX_CONTEXT_CHARS = 12_000
+
+
+def require_ai_access(current_user: User = Depends(require_role("scout"))) -> User:
+    if not current_user.ai_access:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="AI access has not been enabled for your account. "
+            "Contact a Global Admin to request access.",
+        )
+    return current_user
 
 def _system_prompt() -> str:
     return get_settings().ai_system_prompt
@@ -67,8 +78,20 @@ class ChatRequest(BaseModel):
         return v[-10:]
 
 
-def _check_and_increment_daily_usage(db: Session, user_id, daily_limit: int) -> int:
+def _check_and_increment_daily_usage(db: Session, user_id, daily_limit: int, global_limit: int) -> int:
     today = date.today()
+
+    global_used = (
+        db.query(func.coalesce(func.sum(AiUsageLog.request_count), 0))
+        .filter(AiUsageLog.date == today)
+        .scalar()
+    ) or 0
+    if global_used >= global_limit:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The AI assistant has reached its shared daily capacity. Please try again tomorrow.",
+        )
+
     record = (
         db.query(AiUsageLog)
         .filter(AiUsageLog.user_id == user_id, AiUsageLog.date == today)
@@ -89,10 +112,12 @@ def _check_and_increment_daily_usage(db: Session, user_id, daily_limit: int) -> 
 
 
 def _build_context(db: Session, current_user: User, settings) -> str:
+    total_active = db.query(Player).filter(Player.status == "active").count()
     players = (
         db.query(Player)
         .options(joinedload(Player.club))
         .filter(Player.status == "active")
+        .order_by(Player.market_value.desc().nulls_last(), Player.last_name, Player.id)
         .limit(settings.ai_max_players_context)
         .all()
     )
@@ -116,7 +141,13 @@ def _build_context(db: Session, current_user: User, settings) -> str:
         .all()
     )
 
-    lines = ["=== PLAYERS ==="]
+    if total_active > len(players):
+        lines = [
+            f"=== PLAYERS (showing {len(players)} of {total_active} active players — this list is INCOMPLETE; "
+            "state that clearly when answering ranking or 'top N' questions) ==="
+        ]
+    else:
+        lines = [f"=== PLAYERS (all {total_active} active players) ==="]
     for p in players:
         age = calc_age(p.date_of_birth)
         club = p.club.name if p.club else "Free agent"
@@ -178,7 +209,7 @@ def _build_context(db: Session, current_user: User, settings) -> str:
 
 @router.get("/usage")
 def get_usage(
-    current_user: User = Depends(require_role("scout")),
+    current_user: User = Depends(require_ai_access),
     db: Session = Depends(get_db),
 ):
     settings = get_settings()
@@ -204,7 +235,7 @@ def get_usage(
 def chat(
     request: Request,
     body: ChatRequest,
-    current_user: User = Depends(require_role("scout")),
+    current_user: User = Depends(require_ai_access),
     db: Session = Depends(get_db),
 ):
     settings = get_settings()
@@ -214,7 +245,12 @@ def chat(
             detail="AI assistant is not configured.",
         )
 
-    used = _check_and_increment_daily_usage(db, current_user.id, settings.ai_daily_request_limit)
+    used = _check_and_increment_daily_usage(
+        db,
+        current_user.id,
+        settings.ai_daily_request_limit,
+        settings.ai_global_daily_request_limit,
+    )
     remaining = settings.ai_daily_request_limit - used
 
     context = _build_context(db, current_user, settings)
@@ -240,6 +276,7 @@ def chat(
     timeout = float(settings.groq_request_timeout)
 
     def generate() -> Iterator[str]:
+        stream = None
         try:
             stream = groq_client.chat.completions.create(
                 model=model,
@@ -254,6 +291,9 @@ def chat(
                 if delta:
                     yield f"data: {json.dumps({'chunk': delta})}\n\n"
             yield f"data: {json.dumps({'done': True, 'remaining': remaining})}\n\n"
+        except GeneratorExit:
+            logger.info("AI client disconnected for user %s; aborting stream.", user_id_str)
+            raise
         except RateLimitError:
             logger.warning("Groq rate limit hit for user %s", user_id_str)
             yield f"data: {json.dumps({'error': 'rate_limit'})}\n\n"
@@ -263,6 +303,16 @@ def chat(
         except (APIConnectionError, APIStatusError) as exc:
             logger.exception("Groq API error for user %s: %s", user_id_str, exc)
             yield f"data: {json.dumps({'error': 'service_unavailable'})}\n\n"
+        except Exception:
+            logger.exception("Unexpected AI streaming error for user %s", user_id_str)
+            yield f"data: {json.dumps({'error': 'service_unavailable'})}\n\n"
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    logger.debug("Failed to close Groq stream cleanly for user %s", user_id_str)
 
     return StreamingResponse(
         generate(),
