@@ -4,6 +4,18 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.database import SessionLocal
+from app.models.club import Club  # noqa: F401
+from app.models.league import League  # noqa: F401
+from app.models.mfa import MfaMethod, MfaRecoveryCode, MfaChallenge  # noqa: F401
+from app.models.notification import Notification  # noqa: F401
+from app.models.password_reset_token import PasswordResetToken  # noqa: F401
+from app.models.player import Player  # noqa: F401
+from app.models.player_contract import PlayerContract  # noqa: F401
+from app.models.player_highlight import PlayerHighlight  # noqa: F401
+from app.models.player_market_value_history import PlayerMarketValueHistory  # noqa: F401
+from app.models.player_view import PlayerView  # noqa: F401
+from app.models.report import ScoutingReport  # noqa: F401
+from app.models.saved_prospect import SavedProspect  # noqa: F401
 from app.models.user import User
 from app.security import hash_password
 
