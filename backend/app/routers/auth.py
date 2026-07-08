@@ -7,6 +7,7 @@ import requests as http_requests
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import logging
@@ -34,6 +35,7 @@ from app.schemas.auth import (
 )
 from app.schemas.user import UserResponse
 from app.utils.audit import record_audit
+from app.utils.email_validation import EmailValidationError, validate_registration_email
 from app.utils.mfa import sms_available
 from app.utils.notifications import create_notification, format_role, notify_global_admins
 from app.security import (
@@ -133,14 +135,22 @@ def _issue_tokens(user: User, db: Session, response: Response) -> AccessTokenRes
 )
 @limiter.limit("5/minute")
 def register(request: Request, payload: RegisterRequest, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == payload.email).first():
+    try:
+        normalized_email = validate_registration_email(payload.email)
+    except EmailValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=e.message,
+        ) from e
+
+    if db.query(User).filter(func.lower(User.email) == normalized_email).first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email already exists.",
         )
 
     user = User(
-        email=payload.email,
+        email=normalized_email,
         password_hash=hash_password(payload.password),
         first_name=payload.first_name,
         last_name=payload.last_name,
