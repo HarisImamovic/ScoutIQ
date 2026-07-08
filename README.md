@@ -23,6 +23,10 @@ ScoutIQ is a full-stack scouting platform built for football (soccer) organizati
 - **Players** maintain their own profile and highlight reel.
 - **Global admins** get full CRUD control across users, clubs, leagues, players, and reports platform-wide.
 
+## Note
+
+The Scout role is the only role with access to the AI assistant. Even then, Global Admin has to approve which Scout can access the AI assistant. So, in order for a Scout to get access to it, they need to send an inquiry to the Global Admin. They can do so by navigating to the AI assistant page.
+
 Every role gets its own dashboard, and access is strictly enforced by role on both the frontend and backend — a player can never reach admin routes, and vice versa.
 
 ## Key Features
