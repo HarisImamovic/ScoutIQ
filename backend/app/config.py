@@ -44,11 +44,6 @@ class Settings(BaseSettings):
     login_lockout_minutes: int = 15
     max_request_body_bytes: int = 8 * 1024 * 1024
     enable_hsts: bool = False
-    r2_account_id: str = ""
-    r2_access_key_id: str = ""
-    r2_secret_access_key: str = ""
-    r2_bucket_name: str = ""
-    r2_public_base_url: str = ""
 
     @property
     def origins_list(self) -> list[str]:
