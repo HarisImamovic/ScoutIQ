@@ -1,21 +1,38 @@
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+import logging
+
+import requests
 
 from app.config import get_settings
 
-settings = get_settings()
+logger = logging.getLogger(__name__)
+
+_RESEND_API_URL = "https://api.resend.com/emails"
+
+
+def _send(to_email: str, subject: str, plain: str, html: str) -> None:
+    settings = get_settings()
+    if not settings.resend_api_key:
+        return
+
+    try:
+        response = requests.post(
+            _RESEND_API_URL,
+            headers={"Authorization": f"Bearer {settings.resend_api_key}"},
+            json={
+                "from": settings.resend_from_email,
+                "to": [to_email],
+                "subject": subject,
+                "text": plain,
+                "html": html,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+    except Exception:
+        logger.exception("Failed to send email (subject=%r) to %s", subject, to_email)
 
 
 def send_mfa_code_email(to_email: str, code: str, expires_minutes: int) -> None:
-    if not settings.gmail_user or not settings.gmail_app_password:
-        return
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Your ScoutIQ verification code"
-    msg["From"] = settings.gmail_user
-    msg["To"] = to_email
-
     plain = (
         f"Your ScoutIQ verification code is: {code}\n\n"
         f"This code expires in {expires_minutes} minutes.\n\n"
@@ -42,25 +59,10 @@ def send_mfa_code_email(to_email: str, code: str, expires_minutes: int) -> None:
   </body>
 </html>"""
 
-    msg.attach(MIMEText(plain, "plain"))
-    msg.attach(MIMEText(html, "html"))
-
-    with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
-        smtp.ehlo()
-        smtp.starttls()
-        smtp.login(settings.gmail_user, settings.gmail_app_password)
-        smtp.sendmail(settings.gmail_user, to_email, msg.as_string())
+    _send(to_email, "Your ScoutIQ verification code", plain, html)
 
 
 def send_password_reset_email(to_email: str, reset_link: str) -> None:
-    if not settings.gmail_user or not settings.gmail_app_password:
-        return
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Reset your ScoutIQ password"
-    msg["From"] = settings.gmail_user
-    msg["To"] = to_email
-
     plain = (
         f"You requested a password reset for your ScoutIQ account.\n\n"
         f"Reset your password here (valid for 10 minutes):\n{reset_link}\n\n"
@@ -89,11 +91,4 @@ def send_password_reset_email(to_email: str, reset_link: str) -> None:
   </body>
 </html>"""
 
-    msg.attach(MIMEText(plain, "plain"))
-    msg.attach(MIMEText(html, "html"))
-
-    with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
-        smtp.ehlo()
-        smtp.starttls()
-        smtp.login(settings.gmail_user, settings.gmail_app_password)
-        smtp.sendmail(settings.gmail_user, to_email, msg.as_string())
+    _send(to_email, "Reset your ScoutIQ password", plain, html)
