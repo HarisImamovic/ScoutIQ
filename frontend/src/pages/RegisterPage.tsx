@@ -87,7 +87,9 @@ export default function RegisterPage() {
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
+        const detail = err.response?.data?.detail;
         if (status === 409) toast.error("An account with this email already exists.", { duration: 8000 });
+        else if (status === 400 && typeof detail === "string") toast.error(detail, { duration: 8000 });
         else toast.error("Something went wrong. Please try again.", { duration: 8000 });
       } else {
         toast.error("Something went wrong. Please try again.", { duration: 8000 });

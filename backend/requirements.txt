@@ -18,3 +18,5 @@ python-telegram-bot>=20.0
 pyotp>=2.9.0
 cryptography>=42.0.0
 qrcode[pil]>=7.4.2
+email-validator>=2.2.0
+disposable-email-domains>=0.0.128
