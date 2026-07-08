@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from app.database import get_db
 from app.dependencies import require_global_admin
+from app.storage import save_logo
 from app.models.club import Club
 from app.models.league import League
 from app.models.player import Player
@@ -178,8 +179,6 @@ async def upload_league_logo(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    import os
-
     lid = parse_uuid(league_id, "league_id format")
 
     league = db.query(League).filter(League.id == lid).first()
@@ -197,19 +196,7 @@ async def upload_league_logo(
             detail="Only PNG, JPEG, and WebP images are accepted.",
         )
 
-    logos_dir = os.path.join(os.path.dirname(__file__), "..", "..", "static", "logos")
-    os.makedirs(logos_dir, exist_ok=True)
-
-    filename = f"league_{league_id}.{ext}"
-    for old_ext in ("png", "jpg", "webp"):
-        old_path = os.path.join(logos_dir, f"league_{league_id}.{old_ext}")
-        if os.path.exists(old_path):
-            os.remove(old_path)
-
-    with open(os.path.join(logos_dir, filename), "wb") as f:
-        f.write(raw)
-
-    league.logo_url = f"/static/logos/{filename}"
+    league.logo_url = save_logo(f"league_{league_id}", ext, raw)
     db.commit()
     db.refresh(league)
 
@@ -1259,8 +1246,6 @@ async def upload_club_logo(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    import os
-
     cid = parse_uuid(club_id, "club_id format")
 
     club = db.query(Club).filter(Club.id == cid, Club.deleted_at.is_(None)).first()
@@ -1278,19 +1263,7 @@ async def upload_club_logo(
             detail="Only PNG, JPEG, and WebP images are accepted.",
         )
 
-    logos_dir = os.path.join(os.path.dirname(__file__), "..", "..", "static", "logos")
-    os.makedirs(logos_dir, exist_ok=True)
-
-    filename = f"{club_id}.{ext}"
-    for old_ext in ("png", "jpg", "webp"):
-        old_path = os.path.join(logos_dir, f"{club_id}.{old_ext}")
-        if os.path.exists(old_path):
-            os.remove(old_path)
-
-    with open(os.path.join(logos_dir, filename), "wb") as f:
-        f.write(raw)
-
-    club.logo_url = f"/static/logos/{filename}"
+    club.logo_url = save_logo(club_id, ext, raw)
     club.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(club)
