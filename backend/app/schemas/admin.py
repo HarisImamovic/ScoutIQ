@@ -3,6 +3,8 @@ from typing import Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.schemas.player import PlayerStats
+
 
 class BulkImportRowError(BaseModel):
     row: int
@@ -83,6 +85,7 @@ class AdminPlayerItem(BaseModel):
     club_name: Optional[str]
     market_value: Optional[int]
     status: str
+    stats: PlayerStats
     created_at: datetime
 
 

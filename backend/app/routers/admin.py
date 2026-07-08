@@ -38,6 +38,7 @@ from app.schemas.admin import (
     UpdateReportRequest,
     UpdateUserRequest,
 )
+from app.schemas.player import PlayerStats, UpdatePlayerStatsRequest
 from app.security import hash_password
 from app.utils.audit import record_audit
 from app.utils.notifications import create_notification, format_role, notify_global_admins
@@ -672,6 +673,18 @@ async def bulk_import_clubs(
 # Players
 # ---------------------------------------------------------------------------
 
+def _player_stats(player: Player) -> PlayerStats:
+    return PlayerStats(
+        minutes_played=player.minutes_played,
+        goals=player.goals,
+        assists=player.assists,
+        saves=player.saves,
+        defensive_contributions=player.defensive_contributions,
+        chances_created=player.chances_created,
+        dribbles=player.dribbles,
+    )
+
+
 @router.get("/players", response_model=ListResponse[AdminPlayerItem])
 def list_players(
     _: User = Depends(require_global_admin),
@@ -694,6 +707,7 @@ def list_players(
             club_name=club_name,
             market_value=player.market_value,
             status=player.status,
+            stats=_player_stats(player),
             created_at=player.created_at,
         )
         for player, club_name in rows
@@ -741,6 +755,7 @@ def create_player(
         club_name=club.name if club else None,
         market_value=new_player.market_value,
         status=new_player.status,
+        stats=_player_stats(new_player),
         created_at=new_player.created_at,
     )
 
@@ -1373,8 +1388,36 @@ def update_player(
         club_name=club.name if club else None,
         market_value=player.market_value,
         status=player.status,
+        stats=_player_stats(player),
         created_at=player.created_at,
     )
+
+
+@router.patch("/players/{player_id}/stats", response_model=PlayerStats)
+def update_player_stats(
+    player_id: str,
+    body: UpdatePlayerStatsRequest,
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    pid = parse_uuid(player_id, "player_id format")
+
+    player = db.query(Player).filter(Player.id == pid).first()
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
+
+    player.minutes_played = body.minutes_played
+    player.goals = body.goals
+    player.assists = body.assists
+    player.saves = body.saves
+    player.defensive_contributions = body.defensive_contributions
+    player.chances_created = body.chances_created
+    player.dribbles = body.dribbles
+
+    db.commit()
+    db.refresh(player)
+
+    return _player_stats(player)
 
 
 @router.delete("/players/{player_id}", status_code=status.HTTP_204_NO_CONTENT)

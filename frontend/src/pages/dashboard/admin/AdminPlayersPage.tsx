@@ -66,11 +66,13 @@ import {
   FileUp,
   CheckCircle,
   Building2,
+  BarChart3,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import client from "@/api/client";
 import { BulkImportModal } from "@/components/BulkImportModal";
+import type { PlayerStats } from "@/api/player";
 
 interface Player {
   id: string;
@@ -82,8 +84,31 @@ interface Player {
   club_name: string | null;
   market_value: number | null;
   status: string;
+  stats: PlayerStats;
   created_at: string;
 }
+
+type StatKey = keyof PlayerStats;
+
+const statFields: { key: StatKey; label: string }[] = [
+  { key: "minutes_played", label: "Minutes Played" },
+  { key: "goals", label: "Goals" },
+  { key: "assists", label: "Assists" },
+  { key: "saves", label: "Saves" },
+  { key: "defensive_contributions", label: "Defensive Contributions" },
+  { key: "chances_created", label: "Chances Created" },
+  { key: "dribbles", label: "Dribbles" },
+];
+
+const emptyStatsForm: Record<StatKey, string> = {
+  minutes_played: "",
+  goals: "",
+  assists: "",
+  saves: "",
+  defensive_contributions: "",
+  chances_created: "",
+  dribbles: "",
+};
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -177,6 +202,9 @@ export default function AdminPlayersPage() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [viewTarget, setViewTarget] = useState<Player | null>(null);
+  const [statsTarget, setStatsTarget] = useState<Player | null>(null);
+  const [statsForm, setStatsForm] = useState<Record<StatKey, string>>(emptyStatsForm);
+  const [savingStats, setSavingStats] = useState(false);
 
   useEffect(() => {
     client
@@ -242,6 +270,18 @@ export default function AdminPlayersPage() {
       market_value: p.market_value != null ? String(p.market_value / 1_000_000) : "",
     });
     setModalOpen(true);
+  };
+  const openStats = (p: Player) => {
+    setStatsTarget(p);
+    setStatsForm({
+      minutes_played: p.stats.minutes_played != null ? String(p.stats.minutes_played) : "",
+      goals: p.stats.goals != null ? String(p.stats.goals) : "",
+      assists: p.stats.assists != null ? String(p.stats.assists) : "",
+      saves: p.stats.saves != null ? String(p.stats.saves) : "",
+      defensive_contributions: p.stats.defensive_contributions != null ? String(p.stats.defensive_contributions) : "",
+      chances_created: p.stats.chances_created != null ? String(p.stats.chances_created) : "",
+      dribbles: p.stats.dribbles != null ? String(p.stats.dribbles) : "",
+    });
   };
 
   const columns: ColumnDef<Player>[] = useMemo(
@@ -361,6 +401,7 @@ export default function AdminPlayersPage() {
           <div className="flex gap-1">
             <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openView(row.original)}><Eye className="w-4 h-4" /></Button>
             <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(row.original)}><Edit2 className="w-4 h-4" /></Button>
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openStats(row.original)}><BarChart3 className="w-4 h-4" /></Button>
             <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(row.original.id)} disabled={Object.keys(rowSelection).length > 0}><Trash2 className="w-4 h-4" /></Button>
           </div>
         ),
@@ -450,6 +491,43 @@ export default function AdminPlayersPage() {
       );
     } finally {
       setSaving(false);
+    }
+  };
+
+  const statsInvalid = statFields.some(({ key }) => {
+    const v = statsForm[key];
+    return v !== "" && !/^\d+$/.test(v);
+  });
+
+  const handleSaveStats = async () => {
+    if (!statsTarget) return;
+    setSavingStats(true);
+    try {
+      const toNum = (v: string) => (v === "" ? null : parseInt(v, 10));
+      const { data } = await client.patch<PlayerStats>(
+        `/admin/players/${statsTarget.id}/stats`,
+        {
+          minutes_played: toNum(statsForm.minutes_played),
+          goals: toNum(statsForm.goals),
+          assists: toNum(statsForm.assists),
+          saves: toNum(statsForm.saves),
+          defensive_contributions: toNum(statsForm.defensive_contributions),
+          chances_created: toNum(statsForm.chances_created),
+          dribbles: toNum(statsForm.dribbles),
+        },
+      );
+      setPlayers((prev) =>
+        prev.map((p) => (p.id === statsTarget.id ? { ...p, stats: data } : p)),
+      );
+      setStatsTarget(null);
+      toast.success("Player stats updated successfully.");
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(
+        typeof detail === "string" ? detail : "Failed to update player stats.",
+      );
+    } finally {
+      setSavingStats(false);
     }
   };
 
@@ -594,6 +672,7 @@ export default function AdminPlayersPage() {
                 <div className="flex gap-1 shrink-0">
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openView(p)}><Eye className="w-4 h-4" /></Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p)}><Edit2 className="w-4 h-4" /></Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openStats(p)}><BarChart3 className="w-4 h-4" /></Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(p.id)} disabled={selectedIds.length > 0}><Trash2 className="w-4 h-4" /></Button>
                 </div>
               </div>
@@ -900,6 +979,54 @@ export default function AdminPlayersPage() {
             </Button>
           </DialogFooter>
         </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!statsTarget} onOpenChange={(open) => !open && setStatsTarget(null)}>
+        {statsTarget && (
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-display">
+                Edit Stats — {statsTarget.first_name} {statsTarget.last_name}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-3 py-2">
+              {statFields.map(({ key, label }) => {
+                const v = statsForm[key];
+                const invalid = v !== "" && !/^\d+$/.test(v);
+                return (
+                  <div key={key} className="space-y-2">
+                    <Label>{label}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={v}
+                      onChange={(e) =>
+                        setStatsForm({ ...statsForm, [key]: e.target.value })
+                      }
+                      className={`bg-muted/50 ${invalid ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                    />
+                    {invalid && (
+                      <p className="text-xs text-destructive">Must be a non-negative whole number</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setStatsTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="hero"
+                onClick={handleSaveStats}
+                disabled={savingStats || statsInvalid}
+              >
+                {savingStats ? "Saving…" : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
       </Dialog>
 
       <AlertDialog

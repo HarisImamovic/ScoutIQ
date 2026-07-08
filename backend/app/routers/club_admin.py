@@ -25,6 +25,7 @@ from app.schemas.club_admin import (
     UpdateContractRequest,
     UpdateReportStatusRequest,
 )
+from app.schemas.player import PlayerStats, UpdatePlayerStatsRequest
 from app.schemas.scout import ScoutPlayerItem, ScoutPlayersResponse
 from app.utils.age import calc_age
 from app.utils.notifications import create_notification
@@ -55,6 +56,18 @@ def _get_scout_ids(club_id, db: Session) -> list:
         .filter(User.club_id == club_id, User.role == "scout", User.deleted_at.is_(None))
         .all()
     ]
+
+
+def _player_stats(player: Player) -> PlayerStats:
+    return PlayerStats(
+        minutes_played=player.minutes_played,
+        goals=player.goals,
+        assists=player.assists,
+        saves=player.saves,
+        defensive_contributions=player.defensive_contributions,
+        chances_created=player.chances_created,
+        dribbles=player.dribbles,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -209,9 +222,39 @@ def get_squad(
             nationality=p.nationality,
             market_value=p.market_value,
             status=p.status,
+            stats=_player_stats(p),
         )
         for p in players
     ]
+
+
+@router.patch("/players/{player_id}/stats", response_model=PlayerStats)
+def update_squad_player_stats(
+    player_id: str,
+    body: UpdatePlayerStatsRequest,
+    admin: User = Depends(_require_club_admin),
+    db: Session = Depends(get_db),
+):
+    club = _get_club(admin, db)
+
+    pid = parse_uuid(player_id, "player_id format")
+
+    player = db.query(Player).filter(Player.id == pid, Player.club_id == club.id).first()
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found in your club.")
+
+    player.minutes_played = body.minutes_played
+    player.goals = body.goals
+    player.assists = body.assists
+    player.saves = body.saves
+    player.defensive_contributions = body.defensive_contributions
+    player.chances_created = body.chances_created
+    player.dribbles = body.dribbles
+
+    db.commit()
+    db.refresh(player)
+
+    return _player_stats(player)
 
 
 # ---------------------------------------------------------------------------

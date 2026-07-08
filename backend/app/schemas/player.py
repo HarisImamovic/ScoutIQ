@@ -24,6 +24,16 @@ class PlayerStats(BaseModel):
     dribbles: Optional[int]
 
 
+class UpdatePlayerStatsRequest(BaseModel):
+    minutes_played: Optional[int] = Field(None, ge=0)
+    goals: Optional[int] = Field(None, ge=0)
+    assists: Optional[int] = Field(None, ge=0)
+    saves: Optional[int] = Field(None, ge=0)
+    defensive_contributions: Optional[int] = Field(None, ge=0)
+    chances_created: Optional[int] = Field(None, ge=0)
+    dribbles: Optional[int] = Field(None, ge=0)
+
+
 class MarketValuePoint(BaseModel):
     value: int
     recorded_at: datetime

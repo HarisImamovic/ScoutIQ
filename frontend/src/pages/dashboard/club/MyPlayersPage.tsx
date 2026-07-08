@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -12,10 +14,10 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import { Search, Filter, Eye, Flag, AlertCircle, Video, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Filter, Eye, Flag, AlertCircle, Video, ExternalLink, ChevronLeft, ChevronRight, BarChart3 } from "lucide-react";
 import { clubAdminApi, isNoClubError, type ClubPlayerItem } from "@/api/clubAdmin";
 import { scoutApi } from "@/api/scout";
-import type { HighlightItem } from "@/api/player";
+import type { HighlightItem, PlayerStats } from "@/api/player";
 import { NoClubState } from "@/components/NoClubState";
 import { formatMarketValue } from "@/lib/formatters";
 
@@ -30,6 +32,28 @@ function capitalizeStatus(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+type StatKey = keyof PlayerStats;
+
+const statFields: { key: StatKey; label: string }[] = [
+  { key: "minutes_played", label: "Minutes Played" },
+  { key: "goals", label: "Goals" },
+  { key: "assists", label: "Assists" },
+  { key: "saves", label: "Saves" },
+  { key: "defensive_contributions", label: "Defensive Contributions" },
+  { key: "chances_created", label: "Chances Created" },
+  { key: "dribbles", label: "Dribbles" },
+];
+
+const emptyStatsForm: Record<StatKey, string> = {
+  minutes_played: "",
+  goals: "",
+  assists: "",
+  saves: "",
+  defensive_contributions: "",
+  chances_created: "",
+  dribbles: "",
+};
+
 export default function MyPlayersPage() {
   const [search, setSearch] = useState("");
   const [posFilter, setPosFilter] = useState("all");
@@ -39,6 +63,57 @@ export default function MyPlayersPage() {
   const [highlightsData, setHighlightsData] = useState<HighlightItem[]>([]);
   const [highlightsLoading, setHighlightsLoading] = useState(false);
   const [highlightsIndex, setHighlightsIndex] = useState(0);
+  const [statsPlayer, setStatsPlayer] = useState<ClubPlayerItem | null>(null);
+  const [statsForm, setStatsForm] = useState<Record<StatKey, string>>(emptyStatsForm);
+  const [savingStats, setSavingStats] = useState(false);
+  const queryClient = useQueryClient();
+
+  const openStats = (player: ClubPlayerItem) => {
+    setStatsPlayer(player);
+    setStatsForm({
+      minutes_played: player.stats.minutes_played != null ? String(player.stats.minutes_played) : "",
+      goals: player.stats.goals != null ? String(player.stats.goals) : "",
+      assists: player.stats.assists != null ? String(player.stats.assists) : "",
+      saves: player.stats.saves != null ? String(player.stats.saves) : "",
+      defensive_contributions: player.stats.defensive_contributions != null ? String(player.stats.defensive_contributions) : "",
+      chances_created: player.stats.chances_created != null ? String(player.stats.chances_created) : "",
+      dribbles: player.stats.dribbles != null ? String(player.stats.dribbles) : "",
+    });
+  };
+
+  const statsInvalid = statFields.some(({ key }) => {
+    const v = statsForm[key];
+    return v !== "" && !/^\d+$/.test(v);
+  });
+
+  const handleSaveStats = async () => {
+    if (!statsPlayer) return;
+    setSavingStats(true);
+    try {
+      const toNum = (v: string) => (v === "" ? null : parseInt(v, 10));
+      const data = await clubAdminApi.updatePlayerStats(statsPlayer.id, {
+        minutes_played: toNum(statsForm.minutes_played),
+        goals: toNum(statsForm.goals),
+        assists: toNum(statsForm.assists),
+        saves: toNum(statsForm.saves),
+        defensive_contributions: toNum(statsForm.defensive_contributions),
+        chances_created: toNum(statsForm.chances_created),
+        dribbles: toNum(statsForm.dribbles),
+      });
+      queryClient.setQueryData<ClubPlayerItem[]>(["club-squad"], (old) =>
+        old?.map((p) => (p.id === statsPlayer.id ? { ...p, stats: data } : p)),
+      );
+      setStatsPlayer(null);
+      toast.success("Player stats updated successfully.");
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      toast.error(
+        typeof detail === "string" ? detail : "Failed to update player stats.",
+      );
+    } finally {
+      setSavingStats(false);
+    }
+  };
 
   const openHighlights = async (player: ClubPlayerItem) => {
     setHighlightsPlayer(player);
@@ -170,6 +245,14 @@ export default function MyPlayersPage() {
                       onClick={() => openHighlights(p)}
                     >
                       <Video className="w-3.5 h-3.5 mr-1.5" /> View Highlights
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs"
+                      onClick={() => openStats(p)}
+                    >
+                      <BarChart3 className="w-3.5 h-3.5 mr-1.5" /> Edit Stats
                     </Button>
                   </div>
                 </CardContent>
@@ -335,6 +418,54 @@ export default function MyPlayersPage() {
                 onClick={() => { setHighlightsPlayer(null); setHighlightsData([]); setHighlightsIndex(0); }}
               >
                 Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
+
+      <Dialog open={!!statsPlayer} onOpenChange={(open) => !open && setStatsPlayer(null)}>
+        {statsPlayer && (
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-display">
+                Edit Stats — {statsPlayer.first_name} {statsPlayer.last_name}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-3 py-2">
+              {statFields.map(({ key, label }) => {
+                const v = statsForm[key];
+                const invalid = v !== "" && !/^\d+$/.test(v);
+                return (
+                  <div key={key} className="space-y-2">
+                    <Label>{label}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={v}
+                      onChange={(e) =>
+                        setStatsForm({ ...statsForm, [key]: e.target.value })
+                      }
+                      className={`bg-muted/50 ${invalid ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                    />
+                    {invalid && (
+                      <p className="text-xs text-destructive">Must be a non-negative whole number</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setStatsPlayer(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="hero"
+                onClick={handleSaveStats}
+                disabled={savingStats || statsInvalid}
+              >
+                {savingStats ? "Saving…" : "Save Changes"}
               </Button>
             </DialogFooter>
           </DialogContent>
