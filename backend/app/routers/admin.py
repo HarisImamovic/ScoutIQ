@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from app.database import get_db
 from app.dependencies import require_global_admin
+from app.storage import save_logo
 from app.models.club import Club
 from app.models.league import League
 from app.models.player import Player
@@ -38,6 +39,7 @@ from app.schemas.admin import (
     UpdateReportRequest,
     UpdateUserRequest,
 )
+from app.schemas.player import PlayerStats, UpdatePlayerStatsRequest
 from app.security import hash_password
 from app.utils.audit import record_audit
 from app.utils.notifications import create_notification, format_role, notify_global_admins
@@ -177,8 +179,6 @@ async def upload_league_logo(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    import os
-
     lid = parse_uuid(league_id, "league_id format")
 
     league = db.query(League).filter(League.id == lid).first()
@@ -196,19 +196,7 @@ async def upload_league_logo(
             detail="Only PNG, JPEG, and WebP images are accepted.",
         )
 
-    logos_dir = os.path.join(os.path.dirname(__file__), "..", "..", "static", "logos")
-    os.makedirs(logos_dir, exist_ok=True)
-
-    filename = f"league_{league_id}.{ext}"
-    for old_ext in ("png", "jpg", "webp"):
-        old_path = os.path.join(logos_dir, f"league_{league_id}.{old_ext}")
-        if os.path.exists(old_path):
-            os.remove(old_path)
-
-    with open(os.path.join(logos_dir, filename), "wb") as f:
-        f.write(raw)
-
-    league.logo_url = f"/static/logos/{filename}"
+    league.logo_url = save_logo(f"league_{league_id}", ext, raw)
     db.commit()
     db.refresh(league)
 
@@ -672,6 +660,18 @@ async def bulk_import_clubs(
 # Players
 # ---------------------------------------------------------------------------
 
+def _player_stats(player: Player) -> PlayerStats:
+    return PlayerStats(
+        minutes_played=player.minutes_played,
+        goals=player.goals,
+        assists=player.assists,
+        saves=player.saves,
+        defensive_contributions=player.defensive_contributions,
+        chances_created=player.chances_created,
+        dribbles=player.dribbles,
+    )
+
+
 @router.get("/players", response_model=ListResponse[AdminPlayerItem])
 def list_players(
     _: User = Depends(require_global_admin),
@@ -694,6 +694,7 @@ def list_players(
             club_name=club_name,
             market_value=player.market_value,
             status=player.status,
+            stats=_player_stats(player),
             created_at=player.created_at,
         )
         for player, club_name in rows
@@ -741,6 +742,7 @@ def create_player(
         club_name=club.name if club else None,
         market_value=new_player.market_value,
         status=new_player.status,
+        stats=_player_stats(new_player),
         created_at=new_player.created_at,
     )
 
@@ -1244,8 +1246,6 @@ async def upload_club_logo(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    import os
-
     cid = parse_uuid(club_id, "club_id format")
 
     club = db.query(Club).filter(Club.id == cid, Club.deleted_at.is_(None)).first()
@@ -1263,19 +1263,7 @@ async def upload_club_logo(
             detail="Only PNG, JPEG, and WebP images are accepted.",
         )
 
-    logos_dir = os.path.join(os.path.dirname(__file__), "..", "..", "static", "logos")
-    os.makedirs(logos_dir, exist_ok=True)
-
-    filename = f"{club_id}.{ext}"
-    for old_ext in ("png", "jpg", "webp"):
-        old_path = os.path.join(logos_dir, f"{club_id}.{old_ext}")
-        if os.path.exists(old_path):
-            os.remove(old_path)
-
-    with open(os.path.join(logos_dir, filename), "wb") as f:
-        f.write(raw)
-
-    club.logo_url = f"/static/logos/{filename}"
+    club.logo_url = save_logo(club_id, ext, raw)
     club.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(club)
@@ -1373,8 +1361,36 @@ def update_player(
         club_name=club.name if club else None,
         market_value=player.market_value,
         status=player.status,
+        stats=_player_stats(player),
         created_at=player.created_at,
     )
+
+
+@router.patch("/players/{player_id}/stats", response_model=PlayerStats)
+def update_player_stats(
+    player_id: str,
+    body: UpdatePlayerStatsRequest,
+    _: User = Depends(require_global_admin),
+    db: Session = Depends(get_db),
+):
+    pid = parse_uuid(player_id, "player_id format")
+
+    player = db.query(Player).filter(Player.id == pid).first()
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
+
+    player.minutes_played = body.minutes_played
+    player.goals = body.goals
+    player.assists = body.assists
+    player.saves = body.saves
+    player.defensive_contributions = body.defensive_contributions
+    player.chances_created = body.chances_created
+    player.dribbles = body.dribbles
+
+    db.commit()
+    db.refresh(player)
+
+    return _player_stats(player)
 
 
 @router.delete("/players/{player_id}", status_code=status.HTTP_204_NO_CONTENT)

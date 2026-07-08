@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     groq_request_timeout: int = 30
     ai_daily_request_limit: int = 50
     ai_requests_per_minute: int = 10
-    ai_global_daily_request_limit: int = 2000
+    ai_global_daily_request_limit: int = 900
     ai_max_players_context: int = 150
     ai_max_reports_context: int = 20
     ai_max_prospects_context: int = 30
@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     login_lockout_minutes: int = 15
     max_request_body_bytes: int = 8 * 1024 * 1024
     enable_hsts: bool = False
+    r2_account_id: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket_name: str = ""
+    r2_public_base_url: str = ""
 
     @property
     def origins_list(self) -> list[str]:

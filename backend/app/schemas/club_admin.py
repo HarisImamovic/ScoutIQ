@@ -3,6 +3,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.schemas.player import PlayerStats
+
 
 class ClubInfo(BaseModel):
     id: str
@@ -56,6 +58,7 @@ class ClubPlayerItem(BaseModel):
     nationality: Optional[str]
     market_value: Optional[int]
     status: str
+    stats: PlayerStats
 
 
 class ClubReportItem(BaseModel):

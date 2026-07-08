@@ -163,16 +163,10 @@ def _build_context(db: Session, current_user: User, settings) -> str:
             stats.append(f"G{p.goals}")
         if p.assists is not None:
             stats.append(f"A{p.assists}")
-        if p.minutes_played is not None:
-            stats.append(f"{p.minutes_played}min")
         if p.defensive_contributions is not None:
             stats.append(f"D{p.defensive_contributions}")
         if p.saves is not None:
             stats.append(f"S{p.saves}")
-        if p.chances_created is not None:
-            stats.append(f"CC{p.chances_created}")
-        if p.dribbles is not None:
-            stats.append(f"Dr{p.dribbles}")
         if stats:
             parts.append("/".join(stats))
         lines.append(", ".join(parts))

@@ -1,6 +1,7 @@
 import axios from "axios";
 import client from "./client";
 import type { ScoutPlayersResponse } from "./scout";
+import type { PlayerStats } from "./player";
 
 export function isNoClubError(error: unknown): boolean {
   return (
@@ -67,6 +68,17 @@ export interface ClubPlayerItem {
   nationality: string | null;
   market_value: number | null;
   status: string;
+  stats: PlayerStats;
+}
+
+export interface UpdatePlayerStatsPayload {
+  minutes_played: number | null;
+  goals: number | null;
+  assists: number | null;
+  saves: number | null;
+  defensive_contributions: number | null;
+  chances_created: number | null;
+  dribbles: number | null;
 }
 
 export interface ClubReportItem {
@@ -125,6 +137,9 @@ export const clubAdminApi = {
 
   getSquad: (params: { search?: string; position?: string } = {}): Promise<ClubPlayerItem[]> =>
     client.get("/club/players", { params }).then((r) => r.data),
+
+  updatePlayerStats: (id: string, data: UpdatePlayerStatsPayload): Promise<PlayerStats> =>
+    client.patch(`/club/players/${id}/stats`, data).then((r) => r.data),
 
   browsePlayers: (params: PlayersQueryParams = {}): Promise<ScoutPlayersResponse> =>
     client.get("/club/players/browse", { params }).then((r) => r.data),
