@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies import require_global_admin, require_role
+from app.email import send_ai_access_requested_email
 from app.limiter import limiter
 from app.models.ai_access_request import AiAccessRequest
 from app.models.user import User
@@ -27,6 +29,7 @@ _require_scout = require_role("scout")
 def create_access_request(
     request: Request,
     body: AiAccessRequestCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(_require_scout),
     db: Session = Depends(get_db),
 ):
@@ -66,6 +69,23 @@ def create_access_request(
             "requester_name": requester_name,
         },
     )
+
+    admin_emails = [
+        email
+        for (email,) in db.query(User.email)
+        .filter(User.role == "global_admin", User.deleted_at.is_(None))
+        .all()
+    ]
+    review_link = f"{get_settings().frontend_url}/dashboard/notifications"
+    for admin_email in admin_emails:
+        background_tasks.add_task(
+            send_ai_access_requested_email,
+            admin_email,
+            requester_name,
+            current_user.email,
+            body.message,
+            review_link,
+        )
 
     record_audit(
         db, "ai_access.request", actor=current_user, target_type="ai_access_request",

@@ -62,6 +62,36 @@ def send_mfa_code_email(to_email: str, code: str, expires_minutes: int) -> None:
     _send(to_email, "Your ScoutIQ verification code", plain, html)
 
 
+def send_ai_access_requested_email(
+    to_email: str, requester_name: str, requester_email: str, message: str, review_link: str
+) -> None:
+    plain = (
+        f"{requester_name} ({requester_email}) requested access to the AI Assistant.\n\n"
+        f"Message from requester:\n{message}\n\n"
+        f"Review this request: {review_link}"
+    )
+
+    html = f"""\
+<html>
+  <body style="font-family:sans-serif;color:#1a1a1a;max-width:480px;margin:auto;padding:32px 24px">
+    <h2 style="margin-bottom:8px">New AI Access Request</h2>
+    <p style="color:#555;margin-bottom:8px">
+      <strong>{requester_name}</strong> ({requester_email}) requested access to the AI Assistant.
+    </p>
+    <p style="color:#555;white-space:pre-wrap;background:#f4f4f5;border-radius:8px;padding:16px;margin-bottom:24px">{message}</p>
+    <a href="{review_link}"
+       style="display:inline-block;padding:12px 28px;background:#6366f1;color:#fff;
+              text-decoration:none;border-radius:8px;font-weight:600">
+      Review Request
+    </a>
+    <hr style="margin-top:32px;border:none;border-top:1px solid #eee">
+    <p style="font-size:12px;color:#aaa">ScoutIQ · Football Scouting Platform</p>
+  </body>
+</html>"""
+
+    _send(to_email, f"AI Access Request from {requester_name}", plain, html)
+
+
 def send_password_reset_email(to_email: str, reset_link: str) -> None:
     plain = (
         f"You requested a password reset for your ScoutIQ account.\n\n"
