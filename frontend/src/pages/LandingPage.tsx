@@ -201,8 +201,11 @@ export default function LandingPage() {
               <a href="#" className="text-muted-foreground hover:text-foreground transition-colors"><Linkedin className="w-5 h-5" /></a>
             </div>
           </div>
-          <div className="mt-8 text-center text-sm text-muted-foreground">
-            © 2026 ScoutIQ. All rights reserved.
+          <div className="mt-8 flex flex-col items-center gap-2 text-center text-sm text-muted-foreground">
+            <span>© 2026 ScoutIQ. All rights reserved.</span>
+            <Link to="/privacy-policy" className="hover:text-foreground transition-colors underline-offset-4 hover:underline">
+              Privacy Policy
+            </Link>
           </div>
         </div>
       </footer>
