@@ -58,18 +58,6 @@ def _get_scout_ids(club_id, db: Session) -> list:
     ]
 
 
-def _player_stats(player: Player) -> PlayerStats:
-    return PlayerStats(
-        minutes_played=player.minutes_played,
-        goals=player.goals,
-        assists=player.assists,
-        saves=player.saves,
-        defensive_contributions=player.defensive_contributions,
-        chances_created=player.chances_created,
-        dribbles=player.dribbles,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
@@ -222,7 +210,7 @@ def get_squad(
             nationality=p.nationality,
             market_value=p.market_value,
             status=p.status,
-            stats=_player_stats(p),
+            stats=PlayerStats.from_player(p),
         )
         for p in players
     ]
@@ -254,7 +242,7 @@ def update_squad_player_stats(
     db.commit()
     db.refresh(player)
 
-    return _player_stats(player)
+    return PlayerStats.from_player(player)
 
 
 # ---------------------------------------------------------------------------

@@ -56,9 +56,6 @@ import {
   Edit2,
   Trash2,
   Search,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   ChevronLeft,
   ChevronRight,
   Users,
@@ -72,6 +69,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import client from "@/api/client";
 import { BulkImportModal } from "@/components/BulkImportModal";
+import { SortIcon } from "@/components/SortIcon";
+import { calcAge, capitalize, formatMarketValue } from "@/lib/formatters";
+import { adminPlayerStatusColors as statusColors } from "@/lib/statusBadges";
 import type { PlayerStats } from "@/api/player";
 
 interface Player {
@@ -109,39 +109,6 @@ const emptyStatsForm: Record<StatKey, string> = {
   chances_created: "",
   dribbles: "",
 };
-
-const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-
-const calcAge = (dob: string | null): number | null => {
-  if (!dob) return null;
-  const birth = new Date(dob);
-  const now = new Date();
-  let age = now.getFullYear() - birth.getFullYear();
-  if (now < new Date(now.getFullYear(), birth.getMonth(), birth.getDate()))
-    age--;
-  return age;
-};
-
-const formatValue = (v: number | null): string => {
-  if (v == null) return "—";
-  if (v >= 1_000_000) return `€${(v / 1_000_000).toFixed(0)}M`;
-  if (v >= 1_000) return `€${(v / 1_000).toFixed(0)}K`;
-  return `€${v}`;
-};
-
-const statusColors: Record<string, string> = {
-  Active: "bg-primary/10 text-primary border-primary/20",
-  Injured: "bg-destructive/10 text-destructive border-destructive/20",
-};
-
-function SortIcon({ d }: { d: "asc" | "desc" | false }) {
-  if (!d) return <ArrowUpDown className="w-3.5 h-3.5 ml-1 opacity-40" />;
-  return d === "asc" ? (
-    <ArrowUp className="w-3.5 h-3.5 ml-1 text-primary" />
-  ) : (
-    <ArrowDown className="w-3.5 h-3.5 ml-1 text-primary" />
-  );
-}
 
 function CharCount({ value, max }: { value: string; max: number }) {
   const len = value.length;
@@ -311,7 +278,7 @@ export default function AdminPlayersPage() {
             className="flex items-center font-medium hover:text-foreground"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            Player <SortIcon d={column.getIsSorted()} />
+            Player <SortIcon direction={column.getIsSorted()} />
           </button>
         ),
         cell: ({ row }) => (
@@ -342,7 +309,7 @@ export default function AdminPlayersPage() {
             className="flex items-center font-medium hover:text-foreground"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            Age <SortIcon d={column.getIsSorted()} />
+            Age <SortIcon direction={column.getIsSorted()} />
           </button>
         ),
         cell: ({ getValue }) => (
@@ -356,7 +323,7 @@ export default function AdminPlayersPage() {
             className="flex items-center font-medium hover:text-foreground"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            Club <SortIcon d={column.getIsSorted()} />
+            Club <SortIcon direction={column.getIsSorted()} />
           </button>
         ),
         cell: ({ getValue }) => (
@@ -370,12 +337,12 @@ export default function AdminPlayersPage() {
             className="flex items-center font-medium hover:text-foreground"
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            Value <SortIcon d={column.getIsSorted()} />
+            Value <SortIcon direction={column.getIsSorted()} />
           </button>
         ),
         cell: ({ getValue }) => (
           <span className="font-display font-bold text-primary">
-            {formatValue(getValue() as number | null)}
+            {formatMarketValue(getValue() as number | null, 0)}
           </span>
         ),
       },
@@ -679,7 +646,7 @@ export default function AdminPlayersPage() {
               <div className="flex items-center gap-2 flex-wrap">
                 <Badge variant="outline" className={`text-xs ${statusColors[capitalize(p.status)]}`}>{capitalize(p.status)}</Badge>
                 <span className="text-xs text-muted-foreground">{p.club_name ?? "Free agent"}</span>
-                <span className="text-xs font-semibold text-primary ml-auto">{formatValue(p.market_value)}</span>
+                <span className="text-xs font-semibold text-primary ml-auto">{formatMarketValue(p.market_value, 0)}</span>
               </div>
             </div>
           );
@@ -802,7 +769,7 @@ export default function AdminPlayersPage() {
                 </div>
                 <div className="p-3 rounded-lg bg-muted/50">
                   <p className="text-xs text-muted-foreground">Market Value</p>
-                  <p className="font-display font-bold text-primary text-sm">{formatValue(viewTarget.market_value)}</p>
+                  <p className="font-display font-bold text-primary text-sm">{formatMarketValue(viewTarget.market_value, 0)}</p>
                 </div>
                 <div className="p-3 rounded-lg bg-muted/50">
                   <p className="text-xs text-muted-foreground">Status</p>

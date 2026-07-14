@@ -23,35 +23,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Eye, CheckCircle2, XCircle, FileText, Clock, AlertCircle,
-  Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight,
+  Search, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { clubAdminApi, isNoClubError, type ClubReportItem } from "@/api/clubAdmin";
 import { NoClubState } from "@/components/NoClubState";
-
-const STATUS_COLORS: Record<string, string> = {
-  submitted: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-  approved: "bg-primary/10 text-primary border-primary/20",
-  rejected: "bg-destructive/10 text-destructive border-destructive/20",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  submitted: "Pending",
-  approved: "Approved",
-  rejected: "Rejected",
-};
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "2-digit", month: "short", year: "numeric",
-  });
-}
-
-function SortIcon({ column }: { column: any }) {
-  const sorted = column.getIsSorted();
-  if (sorted === "asc") return <ArrowUp className="w-3.5 h-3.5 ml-1 inline" />;
-  if (sorted === "desc") return <ArrowDown className="w-3.5 h-3.5 ml-1 inline" />;
-  return <ArrowUpDown className="w-3.5 h-3.5 ml-1 inline opacity-40" />;
-}
+import { SortIcon } from "@/components/SortIcon";
+import { formatDate } from "@/lib/formatters";
+import { reportStatusColors as STATUS_COLORS, reportStatusLabels as STATUS_LABEL } from "@/lib/statusBadges";
 
 const columnHelper = createColumnHelper<ClubReportItem>();
 
@@ -110,7 +88,7 @@ export default function ClubReportsPage() {
     columnHelper.accessor("player_name", {
       header: ({ column }) => (
         <button onClick={() => column.toggleSorting()} className="flex items-center font-medium hover:text-foreground">
-          Player <SortIcon column={column} />
+          Player <SortIcon direction={column.getIsSorted()} inline />
         </button>
       ),
       cell: (info) => (
@@ -123,7 +101,7 @@ export default function ClubReportsPage() {
     columnHelper.accessor("scout_name", {
       header: ({ column }) => (
         <button onClick={() => column.toggleSorting()} className="flex items-center font-medium hover:text-foreground">
-          Scout <SortIcon column={column} />
+          Scout <SortIcon direction={column.getIsSorted()} inline />
         </button>
       ),
       cell: (info) => <span className="text-sm text-muted-foreground">{info.getValue()}</span>,
@@ -131,7 +109,7 @@ export default function ClubReportsPage() {
     columnHelper.accessor("rating", {
       header: ({ column }) => (
         <button onClick={() => column.toggleSorting()} className="flex items-center font-medium hover:text-foreground">
-          Rating <SortIcon column={column} />
+          Rating <SortIcon direction={column.getIsSorted()} inline />
         </button>
       ),
       cell: (info) => (
@@ -141,7 +119,7 @@ export default function ClubReportsPage() {
     columnHelper.accessor("created_at", {
       header: ({ column }) => (
         <button onClick={() => column.toggleSorting()} className="flex items-center font-medium hover:text-foreground">
-          Date <SortIcon column={column} />
+          Date <SortIcon direction={column.getIsSorted()} inline />
         </button>
       ),
       cell: (info) => <span className="text-sm text-muted-foreground">{formatDate(info.getValue())}</span>,

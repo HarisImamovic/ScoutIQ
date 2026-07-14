@@ -78,15 +78,7 @@ def get_player_dashboard(
 
     stats = None
     if player.minutes_played is not None:
-        stats = PlayerStats(
-            minutes_played=player.minutes_played,
-            goals=player.goals,
-            assists=player.assists,
-            saves=player.saves,
-            defensive_contributions=player.defensive_contributions,
-            chances_created=player.chances_created,
-            dribbles=player.dribbles,
-        )
+        stats = PlayerStats.from_player(player)
 
     saves = db.query(SavedProspect).filter(SavedProspect.player_id == player.id).all()
     reports = db.query(ScoutingReport).filter(ScoutingReport.player_id == player.id).all()

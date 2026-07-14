@@ -15,7 +15,7 @@ from app.models.report import ScoutingReport
 from app.models.saved_prospect import SavedProspect
 from app.models.user import User
 from app.utils.age import calc_age
-from app.utils.notifications import create_notification
+from app.utils.notifications import create_notification, notify_club_admins
 from app.utils.uuid import parse_uuid, try_parse_uuid
 from app.schemas.scout import (
     CreateScoutReportRequest,
@@ -34,6 +34,20 @@ from app.schemas.scout import (
 router = APIRouter(prefix="/scout", tags=["scout"])
 
 _require_scout = require_role("scout")
+
+
+def _report_item(report: ScoutingReport) -> ScoutReportItem:
+    return ScoutReportItem(
+        id=str(report.id),
+        player_id=str(report.player_id) if report.player_id else None,
+        player_name=report.player_name,
+        position=report.position,
+        rating=report.rating,
+        status=report.status,
+        notes=report.notes,
+        created_at=report.created_at,
+        updated_at=report.updated_at,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -305,34 +319,24 @@ def save_prospect(
 ):
     pid = parse_uuid(player_id, "player_id")
 
-    if not db.query(Player).filter(Player.id == pid).first():
+    player = db.query(Player).filter(Player.id == pid).first()
+    if not player:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
 
-    player = db.query(Player).filter(Player.id == pid).first()
     scout_name = f"{scout.first_name} {scout.last_name}"
-    player_name = f"{player.first_name} {player.last_name}" if player else "Unknown"
+    player_name = f"{player.first_name} {player.last_name}"
 
     try:
         db.add(SavedProspect(scout_id=scout.id, player_id=pid))
         db.flush()
 
         if scout.club_id:
-            club_admins = (
-                db.query(User)
-                .filter(
-                    User.club_id == scout.club_id,
-                    User.role == "club_admin",
-                    User.deleted_at.is_(None),
-                )
-                .all()
+            notify_club_admins(
+                db, scout.club_id, "star", "Prospect Saved",
+                f"{scout_name} saved {player_name} as a prospect.",
             )
-            for ca in club_admins:
-                create_notification(
-                    db, ca.id, "star", "Prospect Saved",
-                    f"{scout_name} saved {player_name} as a prospect.",
-                )
 
-        if player and player.user_id:
+        if player.user_id:
             create_notification(
                 db, player.user_id, "star", "Scout Interest",
                 "A scout saved you as a prospect.",
@@ -363,22 +367,12 @@ def unsave_prospect(
         db.delete(sp)
 
         if scout.club_id and player:
-            club_admins = (
-                db.query(User)
-                .filter(
-                    User.club_id == scout.club_id,
-                    User.role == "club_admin",
-                    User.deleted_at.is_(None),
-                )
-                .all()
-            )
             scout_name = f"{scout.first_name} {scout.last_name}"
             player_name = f"{player.first_name} {player.last_name}"
-            for ca in club_admins:
-                create_notification(
-                    db, ca.id, "star", "Prospect Unsaved",
-                    f"{scout_name} removed {player_name} from saved prospects.",
-                )
+            notify_club_admins(
+                db, scout.club_id, "star", "Prospect Unsaved",
+                f"{scout_name} removed {player_name} from saved prospects.",
+            )
 
         db.commit()
 
@@ -399,20 +393,7 @@ def list_reports(
         .all()
     )
 
-    return [
-        ScoutReportItem(
-            id=str(r.id),
-            player_id=str(r.player_id) if r.player_id else None,
-            player_name=r.player_name,
-            position=r.position,
-            rating=r.rating,
-            status=r.status,
-            notes=r.notes,
-            created_at=r.created_at,
-            updated_at=r.updated_at,
-        )
-        for r in reports
-    ]
+    return [_report_item(r) for r in reports]
 
 
 @router.post("/reports", response_model=ScoutReportItem, status_code=status.HTTP_201_CREATED)
@@ -442,20 +423,10 @@ def create_report(
     db.flush()
 
     if body.status == "submitted" and scout.club_id:
-        club_admins = (
-            db.query(User)
-            .filter(
-                User.club_id == scout.club_id,
-                User.role == "club_admin",
-                User.deleted_at.is_(None),
-            )
-            .all()
+        notify_club_admins(
+            db, scout.club_id, "file", "Report Pending Review",
+            f"{scout.first_name} {scout.last_name} submitted a report for {body.player_name.strip()}.",
         )
-        for ca in club_admins:
-            create_notification(
-                db, ca.id, "file", "Report Pending Review",
-                f"{scout.first_name} {scout.last_name} submitted a report for {body.player_name.strip()}.",
-            )
 
     if player_uuid:
         linked_player = db.query(Player).filter(Player.id == player_uuid).first()
@@ -468,17 +439,7 @@ def create_report(
     db.commit()
     db.refresh(report)
 
-    return ScoutReportItem(
-        id=str(report.id),
-        player_id=str(report.player_id) if report.player_id else None,
-        player_name=report.player_name,
-        position=report.position,
-        rating=report.rating,
-        status=report.status,
-        notes=report.notes,
-        created_at=report.created_at,
-        updated_at=report.updated_at,
-    )
+    return _report_item(report)
 
 
 @router.put("/reports/{report_id}", response_model=ScoutReportItem)
@@ -513,35 +474,15 @@ def update_report(
     report.updated_at = datetime.now(timezone.utc)
 
     if body.status == "submitted" and old_status != "submitted" and scout.club_id:
-        club_admins = (
-            db.query(User)
-            .filter(
-                User.club_id == scout.club_id,
-                User.role == "club_admin",
-                User.deleted_at.is_(None),
-            )
-            .all()
+        notify_club_admins(
+            db, scout.club_id, "file", "Report Pending Review",
+            f"{scout.first_name} {scout.last_name} submitted a report for {body.player_name.strip()}.",
         )
-        for ca in club_admins:
-            create_notification(
-                db, ca.id, "file", "Report Pending Review",
-                f"{scout.first_name} {scout.last_name} submitted a report for {body.player_name.strip()}.",
-            )
 
     db.commit()
     db.refresh(report)
 
-    return ScoutReportItem(
-        id=str(report.id),
-        player_id=str(report.player_id) if report.player_id else None,
-        player_name=report.player_name,
-        position=report.position,
-        rating=report.rating,
-        status=report.status,
-        notes=report.notes,
-        created_at=report.created_at,
-        updated_at=report.updated_at,
-    )
+    return _report_item(report)
 
 
 @router.delete("/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)

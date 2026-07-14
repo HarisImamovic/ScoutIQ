@@ -12,18 +12,7 @@ import { Link } from "react-router-dom";
 import { clubAdminApi, isNoClubError } from "@/api/clubAdmin";
 import { NoClubState } from "@/components/NoClubState";
 import { ClubLogo } from "@/components/ClubLogo";
-
-const STATUS_COLORS: Record<string, string> = {
-  submitted: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-  approved: "bg-primary/10 text-primary border-primary/20",
-  rejected: "bg-destructive/10 text-destructive border-destructive/20",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  submitted: "Pending",
-  approved: "Approved",
-  rejected: "Rejected",
-};
+import { reportStatusColors as STATUS_COLORS, reportStatusLabels as STATUS_LABEL } from "@/lib/statusBadges";
 
 export default function ClubDashboard() {
   const { data, isLoading, isError, error } = useQuery({

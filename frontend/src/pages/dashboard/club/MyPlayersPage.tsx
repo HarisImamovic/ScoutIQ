@@ -20,13 +20,7 @@ import { scoutApi } from "@/api/scout";
 import type { HighlightItem, PlayerStats } from "@/api/player";
 import { NoClubState } from "@/components/NoClubState";
 import { formatMarketValue } from "@/lib/formatters";
-
-const STATUS_COLORS: Record<string, string> = {
-  active: "bg-primary/10 text-primary border-primary/20",
-  injured: "bg-destructive/10 text-destructive border-destructive/20",
-  on_loan: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-  inactive: "bg-muted text-muted-foreground border-border",
-};
+import { playerStatusColors as STATUS_COLORS } from "@/lib/statusBadges";
 
 function capitalizeStatus(s: string): string {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());

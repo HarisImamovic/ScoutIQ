@@ -44,13 +44,229 @@ from app.security import hash_password
 from app.utils.audit import record_audit
 from app.utils.notifications import create_notification, format_role, notify_global_admins
 from app.utils.telegram import send_report_notification
-from app.utils.uuid import parse_uuid
+from app.utils.uuid import parse_uuid, parse_uuid_list
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 # ---------------------------------------------------------------------------
-# Helper: scouts lookup list (used by front-end report create modal)
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+_MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+_VALID_POSITIONS = {"GK", "CB", "LB", "RB", "CDM", "CM", "AM", "CAM", "LW", "RW", "CF", "ST"}
+
+_LOGO_MAX_BYTES = 2 * 1024 * 1024
+_LOGO_SIGNATURES: dict[bytes, str] = {
+    b"\x89PNG\r\n\x1a\n": "png",
+    b"\xff\xd8\xff": "jpg",
+}
+_WEBP_RIFF = b"RIFF"
+_WEBP_MARKER = b"WEBP"
+
+
+def _detect_image_ext(data: bytes) -> str | None:
+    for sig, ext in _LOGO_SIGNATURES.items():
+        if data[:len(sig)] == sig:
+            return ext
+    if data[:4] == _WEBP_RIFF and len(data) >= 12 and data[8:12] == _WEBP_MARKER:
+        return "webp"
+    return None
+
+
+async def _read_validated_logo(file: UploadFile) -> tuple[str, bytes]:
+    raw = await file.read()
+    if len(raw) > _LOGO_MAX_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Logo must not exceed 2 MB.")
+    ext = _detect_image_ext(raw)
+    if not ext:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only PNG, JPEG, and WebP images are accepted.",
+        )
+    return ext, raw
+
+
+async def _load_import_rows(file: UploadFile) -> list[tuple]:
+    import openpyxl
+
+    if file.content_type not in (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+    ) and not (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Only Excel files (.xlsx, .xls) are accepted.")
+
+    raw = await file.read()
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File exceeds the 5 MB limit.")
+
+    try:
+        wb = openpyxl.load_workbook(filename=io.BytesIO(raw), read_only=True, data_only=True)
+        ws = wb.active
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not parse the Excel file. Make sure it is a valid .xlsx or .xls file.")
+
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The file has no data rows. Row 1 must be the header.")
+    return rows
+
+
+def _get_league_or_404(db: Session, league_id: str) -> League:
+    lid = parse_uuid(league_id, "league_id format")
+    league = db.query(League).filter(League.id == lid).first()
+    if not league:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="League not found.")
+    return league
+
+
+def _get_user_or_404(db: Session, user_id: str) -> User:
+    uid = parse_uuid(user_id, "user_id format")
+    user = db.query(User).filter(User.id == uid, User.deleted_at.is_(None)).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    return user
+
+
+def _get_club_or_404(db: Session, club_id: str) -> Club:
+    cid = parse_uuid(club_id, "club_id format")
+    club = db.query(Club).filter(Club.id == cid, Club.deleted_at.is_(None)).first()
+    if not club:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
+    return club
+
+
+def _get_player_or_404(db: Session, player_id: str) -> Player:
+    pid = parse_uuid(player_id, "player_id format")
+    player = db.query(Player).filter(Player.id == pid).first()
+    if not player:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
+    return player
+
+
+def _get_report_or_404(db: Session, report_id: str) -> ScoutingReport:
+    rid = parse_uuid(report_id, "report_id format")
+    report = db.query(ScoutingReport).filter(ScoutingReport.id == rid).first()
+    if not report:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
+    return report
+
+
+def _resolve_club(db: Session, club_id: str | None) -> tuple[_uuid.UUID | None, Club | None]:
+    if not club_id:
+        return None, None
+    club_uuid = parse_uuid(club_id, "club_id format")
+    club = db.query(Club).filter(Club.id == club_uuid, Club.deleted_at.is_(None)).first()
+    if not club:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
+    return club_uuid, club
+
+
+def _resolve_league(db: Session, league_id: str | None) -> tuple[_uuid.UUID | None, League | None]:
+    if not league_id:
+        return None, None
+    league_uuid = parse_uuid(league_id, "league_id format")
+    league = db.query(League).filter(League.id == league_uuid).first()
+    if not league:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="League not found.")
+    return league_uuid, league
+
+
+def _league_club_count(db: Session, league_id) -> int:
+    return (
+        db.query(func.count(Club.id))
+        .filter(Club.league_id == league_id, Club.deleted_at.is_(None))
+        .scalar()
+    ) or 0
+
+
+def _club_counts(db: Session, club_id) -> tuple[int, int]:
+    scout_count = (
+        db.query(func.count(User.id))
+        .filter(User.club_id == club_id, User.role == "scout", User.deleted_at.is_(None))
+        .scalar()
+    ) or 0
+    player_count = (
+        db.query(func.count(Player.id))
+        .filter(Player.club_id == club_id)
+        .scalar()
+    ) or 0
+    return scout_count, player_count
+
+
+def _league_item(league: League, club_count: int) -> AdminLeagueItem:
+    return AdminLeagueItem(
+        id=str(league.id),
+        name=league.name,
+        country=league.country,
+        logo_url=league.logo_url,
+        club_count=club_count,
+        created_at=league.created_at,
+    )
+
+
+def _user_item(user: User, club_name: str | None) -> AdminUserItem:
+    return AdminUserItem(
+        id=str(user.id),
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        role=user.role,
+        club_id=str(user.club_id) if user.club_id else None,
+        club_name=club_name,
+        status=user.status,
+        ai_access=user.ai_access,
+        created_at=user.created_at,
+    )
+
+
+def _club_item(club: Club, league_name: str | None, scout_count: int, player_count: int) -> AdminClubItem:
+    return AdminClubItem(
+        id=str(club.id),
+        name=club.name,
+        country=club.country,
+        league=league_name or "—",
+        league_id=str(club.league_id) if club.league_id else None,
+        logo_url=club.logo_url,
+        scout_count=scout_count,
+        player_count=player_count,
+        status=club.status,
+        created_at=club.created_at,
+    )
+
+
+def _player_item(player: Player, club_name: str | None) -> AdminPlayerItem:
+    return AdminPlayerItem(
+        id=str(player.id),
+        first_name=player.first_name,
+        last_name=player.last_name,
+        date_of_birth=player.date_of_birth,
+        nationality=player.nationality,
+        position=player.position,
+        club_name=club_name,
+        market_value=player.market_value,
+        status=player.status,
+        stats=PlayerStats.from_player(player),
+        created_at=player.created_at,
+    )
+
+
+def _report_item(report: ScoutingReport, scout_name: str) -> AdminReportItem:
+    return AdminReportItem(
+        id=str(report.id),
+        player_id=str(report.player_id) if report.player_id else None,
+        player_name=report.player_name,
+        position=report.position,
+        scout_name=scout_name,
+        rating=report.rating,
+        status=report.status,
+        notes=report.notes,
+        created_at=report.created_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Leagues
 # ---------------------------------------------------------------------------
 
 @router.get("/leagues", response_model=ListResponse[AdminLeagueItem])
@@ -66,17 +282,7 @@ def list_leagues(
         .group_by(Club.league_id)
         .all()
     }
-    items = [
-        AdminLeagueItem(
-            id=str(l.id),
-            name=l.name,
-            country=l.country,
-            logo_url=l.logo_url,
-            club_count=club_counts.get(l.id, 0),
-            created_at=l.created_at,
-        )
-        for l in leagues
-    ]
+    items = [_league_item(l, club_counts.get(l.id, 0)) for l in leagues]
     return ListResponse(items=items, total=len(items))
 
 
@@ -93,14 +299,7 @@ def create_league(
     db.add(new_league)
     db.commit()
     db.refresh(new_league)
-    return AdminLeagueItem(
-        id=str(new_league.id),
-        name=new_league.name,
-        country=new_league.country,
-        logo_url=None,
-        club_count=0,
-        created_at=new_league.created_at,
-    )
+    return _league_item(new_league, 0)
 
 
 @router.post("/leagues/bulk-delete", response_model=BulkDeleteResult)
@@ -109,12 +308,7 @@ def bulk_delete_leagues(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    uuids = []
-    for raw in body.ids:
-        try:
-            uuids.append(_uuid.UUID(raw))
-        except ValueError:
-            pass
+    uuids = parse_uuid_list(body.ids)
     if not uuids:
         return BulkDeleteResult(deleted=0)
     count = db.query(League).filter(League.id.in_(uuids)).delete(synchronize_session=False)
@@ -129,31 +323,14 @@ def update_league(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    lid = parse_uuid(league_id, "league_id format")
-
-    league = db.query(League).filter(League.id == lid).first()
-    if not league:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="League not found.")
+    league = _get_league_or_404(db, league_id)
 
     league.name = body.name.strip()
     league.country = body.country.strip()
     db.commit()
     db.refresh(league)
 
-    club_count = (
-        db.query(func.count(Club.id))
-        .filter(Club.league_id == league.id, Club.deleted_at.is_(None))
-        .scalar()
-    ) or 0
-
-    return AdminLeagueItem(
-        id=str(league.id),
-        name=league.name,
-        country=league.country,
-        logo_url=league.logo_url,
-        club_count=club_count,
-        created_at=league.created_at,
-    )
+    return _league_item(league, _league_club_count(db, league.id))
 
 
 @router.delete("/leagues/{league_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -162,12 +339,7 @@ def delete_league(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ) -> None:
-    lid = parse_uuid(league_id, "league_id format")
-
-    league = db.query(League).filter(League.id == lid).first()
-    if not league:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="League not found.")
-
+    league = _get_league_or_404(db, league_id)
     db.delete(league)
     db.commit()
 
@@ -179,41 +351,14 @@ async def upload_league_logo(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    lid = parse_uuid(league_id, "league_id format")
-
-    league = db.query(League).filter(League.id == lid).first()
-    if not league:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="League not found.")
-
-    raw = await file.read()
-    if len(raw) > _LOGO_MAX_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Logo must not exceed 2 MB.")
-
-    ext = _detect_image_ext(raw)
-    if not ext:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only PNG, JPEG, and WebP images are accepted.",
-        )
+    league = _get_league_or_404(db, league_id)
+    ext, raw = await _read_validated_logo(file)
 
     league.logo_url = save_logo(f"league_{league_id}", ext, raw)
     db.commit()
     db.refresh(league)
 
-    club_count = (
-        db.query(func.count(Club.id))
-        .filter(Club.league_id == league.id, Club.deleted_at.is_(None))
-        .scalar()
-    ) or 0
-
-    return AdminLeagueItem(
-        id=str(league.id),
-        name=league.name,
-        country=league.country,
-        logo_url=league.logo_url,
-        club_count=club_count,
-        created_at=league.created_at,
-    )
+    return _league_item(league, _league_club_count(db, league.id))
 
 
 @router.get("/scouts")
@@ -246,21 +391,7 @@ def list_users(
         .order_by(User.created_at.desc())
         .all()
     )
-    items = [
-        AdminUserItem(
-            id=str(user.id),
-            email=user.email,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            role=user.role,
-            club_id=str(user.club_id) if user.club_id else None,
-            club_name=club_name,
-            status=user.status,
-            ai_access=user.ai_access,
-            created_at=user.created_at,
-        )
-        for user, club_name in rows
-    ]
+    items = [_user_item(user, club_name) for user, club_name in rows]
     return ListResponse(items=items, total=len(items))
 
 
@@ -271,13 +402,7 @@ def create_user(
     admin: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    club_uuid = None
-    club = None
-    if body.club_id:
-        club_uuid = parse_uuid(body.club_id, "club_id format")
-        club = db.query(Club).filter(Club.id == club_uuid, Club.deleted_at.is_(None)).first()
-        if not club:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
+    club_uuid, club = _resolve_club(db, body.club_id)
 
     if body.role == "player" and not body.position:
         raise HTTPException(
@@ -330,18 +455,7 @@ def create_user(
             detail="A user with this email already exists.",
         )
 
-    return AdminUserItem(
-        id=str(new_user.id),
-        email=new_user.email,
-        first_name=new_user.first_name,
-        last_name=new_user.last_name,
-        role=new_user.role,
-        club_id=str(club_uuid) if club_uuid else None,
-        club_name=club.name if club else None,
-        status=new_user.status,
-        ai_access=new_user.ai_access,
-        created_at=new_user.created_at,
-    )
+    return _user_item(new_user, club.name if club else None)
 
 
 @router.post("/users/{user_id}/ai-access", response_model=AdminUserItem)
@@ -352,11 +466,7 @@ def set_ai_access(
     admin: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    uid = parse_uuid(user_id, "user_id format")
-
-    user = db.query(User).filter(User.id == uid, User.deleted_at.is_(None)).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    user = _get_user_or_404(db, user_id)
     if user.role != "scout":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -392,18 +502,7 @@ def set_ai_access(
         club = db.query(Club).filter(Club.id == user.club_id).first()
         club_name = club.name if club else None
 
-    return AdminUserItem(
-        id=str(user.id),
-        email=user.email,
-        first_name=user.first_name,
-        last_name=user.last_name,
-        role=user.role,
-        club_id=str(user.club_id) if user.club_id else None,
-        club_name=club_name,
-        status=user.status,
-        ai_access=user.ai_access,
-        created_at=user.created_at,
-    )
+    return _user_item(user, club_name)
 
 
 # ---------------------------------------------------------------------------
@@ -440,18 +539,7 @@ def list_clubs(
     }
 
     items = [
-        AdminClubItem(
-            id=str(club.id),
-            name=club.name,
-            country=club.country,
-            league=league_name or "—",
-            league_id=str(club.league_id) if club.league_id else None,
-            logo_url=club.logo_url,
-            scout_count=scout_counts.get(club.id, 0),
-            player_count=player_counts.get(club.id, 0),
-            status=club.status,
-            created_at=club.created_at,
-        )
+        _club_item(club, league_name, scout_counts.get(club.id, 0), player_counts.get(club.id, 0))
         for club, league_name in rows
     ]
     return ListResponse(items=items, total=len(items))
@@ -463,13 +551,7 @@ def create_club(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    league_uuid = None
-    league = None
-    if body.league_id:
-        league_uuid = parse_uuid(body.league_id, "league_id format")
-        league = db.query(League).filter(League.id == league_uuid).first()
-        if not league:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="League not found.")
+    league_uuid, league = _resolve_league(db, body.league_id)
 
     new_club = Club(
         name=body.name.strip(),
@@ -483,18 +565,7 @@ def create_club(
     db.commit()
     db.refresh(new_club)
 
-    return AdminClubItem(
-        id=str(new_club.id),
-        name=new_club.name,
-        country=new_club.country,
-        league=league.name if league else "—",
-        league_id=str(league_uuid) if league_uuid else None,
-        logo_url=None,
-        scout_count=0,
-        player_count=0,
-        status=new_club.status,
-        created_at=new_club.created_at,
-    )
+    return _club_item(new_club, league.name if league else None, 0, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -507,12 +578,7 @@ def bulk_delete_users(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    uuids = []
-    for raw in body.ids:
-        try:
-            uuids.append(_uuid.UUID(raw))
-        except ValueError:
-            pass
+    uuids = parse_uuid_list(body.ids)
     if not uuids:
         return BulkDeleteResult(deleted=0)
     now = datetime.now(timezone.utc)
@@ -528,10 +594,6 @@ def bulk_delete_users(
 # ---------------------------------------------------------------------------
 # Clubs – Bulk import
 # ---------------------------------------------------------------------------
-
-_MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
-_VALID_POSITIONS = {"GK", "CB", "LB", "RB", "CDM", "CM", "AM", "CAM", "LW", "RW", "CF", "ST"}
-
 
 @router.get("/clubs/bulk-import/template")
 def download_clubs_template(_: User = Depends(require_global_admin)):
@@ -559,23 +621,7 @@ async def bulk_import_clubs(
     current_admin: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    import openpyxl
-
-    if file.content_type not in (
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/vnd.ms-excel",
-    ) and not (file.filename or "").lower().endswith((".xlsx", ".xls")):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Only Excel files (.xlsx, .xls) are accepted.")
-
-    raw = await file.read()
-    if len(raw) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File exceeds the 5 MB limit.")
-
-    try:
-        wb = openpyxl.load_workbook(filename=io.BytesIO(raw), read_only=True, data_only=True)
-        ws = wb.active
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not parse the Excel file. Make sure it is a valid .xlsx or .xls file.")
+    rows = await _load_import_rows(file)
 
     all_leagues = db.query(League).all()
     leagues_by_name = {l.name.strip().lower(): l for l in all_leagues}
@@ -588,10 +634,6 @@ async def bulk_import_clubs(
 
     errors: list[BulkImportRowError] = []
     created = 0
-
-    rows = list(ws.iter_rows(min_row=2, values_only=True))
-    if not rows:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The file has no data rows. Row 1 must be the header.")
 
     for i, row in enumerate(rows, start=2):
         name = str(row[0]).strip() if row[0] is not None else ""
@@ -660,18 +702,6 @@ async def bulk_import_clubs(
 # Players
 # ---------------------------------------------------------------------------
 
-def _player_stats(player: Player) -> PlayerStats:
-    return PlayerStats(
-        minutes_played=player.minutes_played,
-        goals=player.goals,
-        assists=player.assists,
-        saves=player.saves,
-        defensive_contributions=player.defensive_contributions,
-        chances_created=player.chances_created,
-        dribbles=player.dribbles,
-    )
-
-
 @router.get("/players", response_model=ListResponse[AdminPlayerItem])
 def list_players(
     _: User = Depends(require_global_admin),
@@ -683,22 +713,7 @@ def list_players(
         .order_by(Player.created_at.desc())
         .all()
     )
-    items = [
-        AdminPlayerItem(
-            id=str(player.id),
-            first_name=player.first_name,
-            last_name=player.last_name,
-            date_of_birth=player.date_of_birth,
-            nationality=player.nationality,
-            position=player.position,
-            club_name=club_name,
-            market_value=player.market_value,
-            status=player.status,
-            stats=_player_stats(player),
-            created_at=player.created_at,
-        )
-        for player, club_name in rows
-    ]
+    items = [_player_item(player, club_name) for player, club_name in rows]
     return ListResponse(items=items, total=len(items))
 
 
@@ -708,13 +723,7 @@ def create_player(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    club_uuid = None
-    club = None
-    if body.club_id:
-        club_uuid = parse_uuid(body.club_id, "club_id format")
-        club = db.query(Club).filter(Club.id == club_uuid, Club.deleted_at.is_(None)).first()
-        if not club:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
+    club_uuid, club = _resolve_club(db, body.club_id)
 
     new_player = Player(
         first_name=body.first_name.strip(),
@@ -732,19 +741,7 @@ def create_player(
     db.commit()
     db.refresh(new_player)
 
-    return AdminPlayerItem(
-        id=str(new_player.id),
-        first_name=new_player.first_name,
-        last_name=new_player.last_name,
-        date_of_birth=new_player.date_of_birth,
-        nationality=new_player.nationality,
-        position=new_player.position,
-        club_name=club.name if club else None,
-        market_value=new_player.market_value,
-        status=new_player.status,
-        stats=_player_stats(new_player),
-        created_at=new_player.created_at,
-    )
+    return _player_item(new_player, club.name if club else None)
 
 
 # ---------------------------------------------------------------------------
@@ -757,12 +754,7 @@ def bulk_delete_clubs(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    uuids = []
-    for raw in body.ids:
-        try:
-            uuids.append(_uuid.UUID(raw))
-        except ValueError:
-            pass
+    uuids = parse_uuid_list(body.ids)
     if not uuids:
         return BulkDeleteResult(deleted=0)
     now = datetime.now(timezone.utc)
@@ -808,34 +800,15 @@ async def bulk_import_players(
     current_admin: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    import openpyxl
     from datetime import date as _date
 
-    if file.content_type not in (
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/vnd.ms-excel",
-    ) and not (file.filename or "").lower().endswith((".xlsx", ".xls")):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Only Excel files (.xlsx, .xls) are accepted.")
-
-    raw = await file.read()
-    if len(raw) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File exceeds the 5 MB limit.")
-
-    try:
-        wb = openpyxl.load_workbook(filename=io.BytesIO(raw), read_only=True, data_only=True)
-        ws = wb.active
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not parse the Excel file. Make sure it is a valid .xlsx or .xls file.")
+    rows = await _load_import_rows(file)
 
     clubs_by_name = {c.name.strip().lower(): c for c in db.query(Club).filter(Club.deleted_at.is_(None)).all()}
     _VALID_PLAYER_STATUSES = {"active", "injured"}
 
     errors: list[BulkImportRowError] = []
     created = 0
-
-    rows = list(ws.iter_rows(min_row=2, values_only=True))
-    if not rows:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The file has no data rows. Row 1 must be the header.")
 
     for i, row in enumerate(rows, start=2):
         first_name = str(row[0]).strip() if row[0] is not None else ""
@@ -936,12 +909,7 @@ def bulk_delete_players(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    uuids = []
-    for raw in body.ids:
-        try:
-            uuids.append(_uuid.UUID(raw))
-        except ValueError:
-            pass
+    uuids = parse_uuid_list(body.ids)
     if not uuids:
         return BulkDeleteResult(deleted=0)
     count = db.query(Player).filter(Player.id.in_(uuids)).delete(synchronize_session=False)
@@ -965,17 +933,7 @@ def list_reports(
         .all()
     )
     items = [
-        AdminReportItem(
-            id=str(report.id),
-            player_id=str(report.player_id) if report.player_id else None,
-            player_name=report.player_name,
-            position=report.position,
-            scout_name=f"{first_name} {last_name}",
-            rating=report.rating,
-            status=report.status,
-            notes=report.notes,
-            created_at=report.created_at,
-        )
+        _report_item(report, f"{first_name} {last_name}")
         for report, first_name, last_name in rows
     ]
     return ListResponse(items=items, total=len(items))
@@ -1002,12 +960,7 @@ def create_report(
 
     player_uuid = None
     if body.player_id:
-        player_uuid = parse_uuid(body.player_id, "player_id format")
-        if not db.query(Player).filter(Player.id == player_uuid).first():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Player not found.",
-            )
+        player_uuid = _get_player_or_404(db, body.player_id).id
 
     new_report = ScoutingReport(
         scout_id=scout_uuid,
@@ -1023,17 +976,7 @@ def create_report(
     db.commit()
     db.refresh(new_report)
 
-    return AdminReportItem(
-        id=str(new_report.id),
-        player_id=str(new_report.player_id) if new_report.player_id else None,
-        player_name=new_report.player_name,
-        position=new_report.position,
-        scout_name=f"{scout.first_name} {scout.last_name}",
-        rating=new_report.rating,
-        status=new_report.status,
-        notes=new_report.notes,
-        created_at=new_report.created_at,
-    )
+    return _report_item(new_report, f"{scout.first_name} {scout.last_name}")
 
 
 # ---------------------------------------------------------------------------
@@ -1048,11 +991,7 @@ def update_user(
     admin: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    uid = parse_uuid(user_id, "user_id format")
-
-    user = db.query(User).filter(User.id == uid, User.deleted_at.is_(None)).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    user = _get_user_or_404(db, user_id)
 
     old_role = user.role
     old_status = user.status
@@ -1061,19 +1000,13 @@ def update_user(
     if user.email != new_email:
         conflict = (
             db.query(User)
-            .filter(User.email == new_email, User.deleted_at.is_(None), User.id != uid)
+            .filter(User.email == new_email, User.deleted_at.is_(None), User.id != user.id)
             .first()
         )
         if conflict:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists.")
 
-    club_uuid = None
-    club = None
-    if body.club_id:
-        club_uuid = parse_uuid(body.club_id, "club_id format")
-        club = db.query(Club).filter(Club.id == club_uuid, Club.deleted_at.is_(None)).first()
-        if not club:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
+    club_uuid, club = _resolve_club(db, body.club_id)
 
     user.email = new_email
     user.first_name = body.first_name.strip()
@@ -1093,7 +1026,7 @@ def update_user(
             detail=f"role {old_role}->{body.role}, status {old_status}->{body.status}.",
         )
 
-    player = db.query(Player).filter(Player.user_id == uid).first()
+    player = db.query(Player).filter(Player.user_id == user.id).first()
     if player:
         player.club_id = club_uuid
         player.first_name = body.first_name.strip()
@@ -1103,18 +1036,7 @@ def update_user(
     db.commit()
     db.refresh(user)
 
-    return AdminUserItem(
-        id=str(user.id),
-        email=user.email,
-        first_name=user.first_name,
-        last_name=user.last_name,
-        role=user.role,
-        club_id=str(club_uuid) if club_uuid else None,
-        club_name=club.name if club else None,
-        status=user.status,
-        ai_access=user.ai_access,
-        created_at=user.created_at,
-    )
+    return _user_item(user, club.name if club else None)
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1124,11 +1046,7 @@ def delete_user(
     admin: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ) -> None:
-    uid = parse_uuid(user_id, "user_id format")
-
-    user = db.query(User).filter(User.id == uid, User.deleted_at.is_(None)).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    user = _get_user_or_404(db, user_id)
 
     user.deleted_at = datetime.now(timezone.utc)
     db.query(RefreshToken).filter(
@@ -1153,19 +1071,8 @@ def update_club(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    cid = parse_uuid(club_id, "club_id format")
-
-    club = db.query(Club).filter(Club.id == cid, Club.deleted_at.is_(None)).first()
-    if not club:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
-
-    league_uuid = None
-    league = None
-    if body.league_id:
-        league_uuid = parse_uuid(body.league_id, "league_id format")
-        league = db.query(League).filter(League.id == league_uuid).first()
-        if not league:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="League not found.")
+    club = _get_club_or_404(db, club_id)
+    league_uuid, league = _resolve_league(db, body.league_id)
 
     club.name = body.name.strip()
     club.country = body.country.strip()
@@ -1176,29 +1083,8 @@ def update_club(
     db.commit()
     db.refresh(club)
 
-    scout_count = (
-        db.query(func.count(User.id))
-        .filter(User.club_id == club.id, User.role == "scout", User.deleted_at.is_(None))
-        .scalar()
-    ) or 0
-    player_count = (
-        db.query(func.count(Player.id))
-        .filter(Player.club_id == club.id)
-        .scalar()
-    ) or 0
-
-    return AdminClubItem(
-        id=str(club.id),
-        name=club.name,
-        country=club.country,
-        league=league.name if league else "—",
-        league_id=str(league_uuid) if league_uuid else None,
-        logo_url=club.logo_url,
-        scout_count=scout_count,
-        player_count=player_count,
-        status=club.status,
-        created_at=club.created_at,
-    )
+    scout_count, player_count = _club_counts(db, club.id)
+    return _club_item(club, league.name if league else None, scout_count, player_count)
 
 
 @router.delete("/clubs/{club_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1207,11 +1093,7 @@ def delete_club(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ) -> None:
-    cid = parse_uuid(club_id, "club_id format")
-
-    club = db.query(Club).filter(Club.id == cid, Club.deleted_at.is_(None)).first()
-    if not club:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
+    club = _get_club_or_404(db, club_id)
 
     club.deleted_at = datetime.now(timezone.utc)
     db.commit()
@@ -1221,24 +1103,6 @@ def delete_club(
 # Clubs – Logo upload
 # ---------------------------------------------------------------------------
 
-_LOGO_MAX_BYTES = 2 * 1024 * 1024
-_LOGO_SIGNATURES: dict[bytes, str] = {
-    b"\x89PNG\r\n\x1a\n": "png",
-    b"\xff\xd8\xff": "jpg",
-}
-_WEBP_RIFF = b"RIFF"
-_WEBP_MARKER = b"WEBP"
-
-
-def _detect_image_ext(data: bytes) -> str | None:
-    for sig, ext in _LOGO_SIGNATURES.items():
-        if data[:len(sig)] == sig:
-            return ext
-    if data[:4] == _WEBP_RIFF and len(data) >= 12 and data[8:12] == _WEBP_MARKER:
-        return "webp"
-    return None
-
-
 @router.post("/clubs/{club_id}/logo", response_model=AdminClubItem)
 async def upload_club_logo(
     club_id: str,
@@ -1246,22 +1110,8 @@ async def upload_club_logo(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    cid = parse_uuid(club_id, "club_id format")
-
-    club = db.query(Club).filter(Club.id == cid, Club.deleted_at.is_(None)).first()
-    if not club:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
-
-    raw = await file.read()
-    if len(raw) > _LOGO_MAX_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Logo must not exceed 2 MB.")
-
-    ext = _detect_image_ext(raw)
-    if not ext:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only PNG, JPEG, and WebP images are accepted.",
-        )
+    club = _get_club_or_404(db, club_id)
+    ext, raw = await _read_validated_logo(file)
 
     club.logo_url = save_logo(club_id, ext, raw)
     club.updated_at = datetime.now(timezone.utc)
@@ -1274,29 +1124,8 @@ async def upload_club_logo(
         if league:
             league_name = league.name
 
-    scout_count = (
-        db.query(func.count(User.id))
-        .filter(User.club_id == club.id, User.role == "scout", User.deleted_at.is_(None))
-        .scalar()
-    ) or 0
-    player_count = (
-        db.query(func.count(Player.id))
-        .filter(Player.club_id == club.id)
-        .scalar()
-    ) or 0
-
-    return AdminClubItem(
-        id=str(club.id),
-        name=club.name,
-        country=club.country,
-        league=league_name or "—",
-        league_id=str(club.league_id) if club.league_id else None,
-        logo_url=club.logo_url,
-        scout_count=scout_count,
-        player_count=player_count,
-        status=club.status,
-        created_at=club.created_at,
-    )
+    scout_count, player_count = _club_counts(db, club.id)
+    return _club_item(club, league_name, scout_count, player_count)
 
 
 # ---------------------------------------------------------------------------
@@ -1310,19 +1139,8 @@ def update_player(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    pid = parse_uuid(player_id, "player_id format")
-
-    player = db.query(Player).filter(Player.id == pid).first()
-    if not player:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
-
-    club_uuid = None
-    club = None
-    if body.club_id:
-        club_uuid = parse_uuid(body.club_id, "club_id format")
-        club = db.query(Club).filter(Club.id == club_uuid, Club.deleted_at.is_(None)).first()
-        if not club:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Club not found.")
+    player = _get_player_or_404(db, player_id)
+    club_uuid, club = _resolve_club(db, body.club_id)
 
     old_status = player.status
     player.first_name = body.first_name.strip()
@@ -1351,19 +1169,7 @@ def update_player(
     db.commit()
     db.refresh(player)
 
-    return AdminPlayerItem(
-        id=str(player.id),
-        first_name=player.first_name,
-        last_name=player.last_name,
-        date_of_birth=player.date_of_birth,
-        nationality=player.nationality,
-        position=player.position,
-        club_name=club.name if club else None,
-        market_value=player.market_value,
-        status=player.status,
-        stats=_player_stats(player),
-        created_at=player.created_at,
-    )
+    return _player_item(player, club.name if club else None)
 
 
 @router.patch("/players/{player_id}/stats", response_model=PlayerStats)
@@ -1373,11 +1179,7 @@ def update_player_stats(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    pid = parse_uuid(player_id, "player_id format")
-
-    player = db.query(Player).filter(Player.id == pid).first()
-    if not player:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
+    player = _get_player_or_404(db, player_id)
 
     player.minutes_played = body.minutes_played
     player.goals = body.goals
@@ -1390,7 +1192,7 @@ def update_player_stats(
     db.commit()
     db.refresh(player)
 
-    return _player_stats(player)
+    return PlayerStats.from_player(player)
 
 
 @router.delete("/players/{player_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1399,12 +1201,7 @@ def delete_player(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ) -> None:
-    pid = parse_uuid(player_id, "player_id format")
-
-    player = db.query(Player).filter(Player.id == pid).first()
-    if not player:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
-
+    player = _get_player_or_404(db, player_id)
     db.delete(player)
     db.commit()
 
@@ -1419,12 +1216,7 @@ def bulk_delete_reports(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    uuids = []
-    for raw in body.ids:
-        try:
-            uuids.append(_uuid.UUID(raw))
-        except ValueError:
-            pass
+    uuids = parse_uuid_list(body.ids)
     if not uuids:
         return BulkDeleteResult(deleted=0)
     count = db.query(ScoutingReport).filter(ScoutingReport.id.in_(uuids)).delete(synchronize_session=False)
@@ -1444,17 +1236,10 @@ def update_report(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ):
-    rid = parse_uuid(report_id, "report_id format")
-
-    report = db.query(ScoutingReport).filter(ScoutingReport.id == rid).first()
-    if not report:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
+    report = _get_report_or_404(db, report_id)
 
     if body.player_id:
-        player_uuid = parse_uuid(body.player_id, "player_id format")
-        if not db.query(Player).filter(Player.id == player_uuid).first():
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
-        report.player_id = player_uuid
+        report.player_id = _get_player_or_404(db, body.player_id).id
 
     old_status = report.status
     report.player_name = body.player_name.strip()
@@ -1486,17 +1271,7 @@ def update_report(
                 body.status,
             )
 
-    return AdminReportItem(
-        id=str(report.id),
-        player_id=str(report.player_id) if report.player_id else None,
-        player_name=report.player_name,
-        position=report.position,
-        scout_name=f"{scout.first_name} {scout.last_name}" if scout else "Unknown",
-        rating=report.rating,
-        status=report.status,
-        notes=report.notes,
-        created_at=report.created_at,
-    )
+    return _report_item(report, f"{scout.first_name} {scout.last_name}" if scout else "Unknown")
 
 
 @router.delete("/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1505,11 +1280,6 @@ def delete_report(
     _: User = Depends(require_global_admin),
     db: Session = Depends(get_db),
 ) -> None:
-    rid = parse_uuid(report_id, "report_id format")
-
-    report = db.query(ScoutingReport).filter(ScoutingReport.id == rid).first()
-    if not report:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
-
+    report = _get_report_or_404(db, report_id)
     db.delete(report)
     db.commit()

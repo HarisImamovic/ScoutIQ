@@ -23,6 +23,18 @@ class PlayerStats(BaseModel):
     chances_created: Optional[int]
     dribbles: Optional[int]
 
+    @classmethod
+    def from_player(cls, player) -> "PlayerStats":
+        return cls(
+            minutes_played=player.minutes_played,
+            goals=player.goals,
+            assists=player.assists,
+            saves=player.saves,
+            defensive_contributions=player.defensive_contributions,
+            chances_created=player.chances_created,
+            dribbles=player.dribbles,
+        )
+
 
 class UpdatePlayerStatsRequest(BaseModel):
     minutes_played: Optional[int] = Field(None, ge=0)

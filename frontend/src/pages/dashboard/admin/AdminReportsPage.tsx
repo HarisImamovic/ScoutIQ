@@ -25,13 +25,15 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Plus, FileText, Eye, Edit2, Trash2, ArrowUpDown, ArrowUp, ArrowDown,
+  Plus, FileText, Eye, Edit2, Trash2,
   ChevronLeft, ChevronRight, Search, CheckCircle, Clock, XCircle, Star, AlertCircle,
   ChevronsUpDown, Check,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import client from "@/api/client";
+import { SortIcon } from "@/components/SortIcon";
+import { formatDate } from "@/lib/formatters";
 
 type ReportStatus = "draft" | "submitted" | "approved" | "rejected";
 
@@ -56,9 +58,6 @@ interface PlayerOption {
 
 const POSITIONS = ["GK", "CB", "LB", "RB", "CDM", "CM", "AM", "CAM", "LW", "RW", "CF", "ST"];
 
-const formatDate = (dt: string) =>
-  new Date(dt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-
 const statusConfig: Record<ReportStatus, { label: string; className: string; icon: React.ElementType }> = {
   draft:     { label: "Draft",     className: "bg-muted text-muted-foreground",      icon: Clock },
   submitted: { label: "Submitted", className: "bg-blue-500/20 text-blue-400",        icon: FileText },
@@ -71,12 +70,6 @@ function StatusBadge({ status }: { status: ReportStatus }) {
   return <Badge className={`gap-1 ${cfg.className}`}><cfg.icon className="w-3 h-3" />{cfg.label}</Badge>;
 }
 
-function SortIcon({ column }: { column: any }) {
-  const sorted = column.getIsSorted();
-  if (sorted === "asc") return <ArrowUp className="w-3.5 h-3.5 ml-1 inline" />;
-  if (sorted === "desc") return <ArrowDown className="w-3.5 h-3.5 ml-1 inline" />;
-  return <ArrowUpDown className="w-3.5 h-3.5 ml-1 inline opacity-40" />;
-}
 
 function CharCount({ value, max }: { value: string; max: number }) {
   const len = value.length;
@@ -174,7 +167,7 @@ export default function AdminReportsPage() {
       ),
     }),
     columnHelper.accessor("player_name", {
-      header: ({ column }) => <button onClick={() => column.toggleSorting()} className="flex items-center">Player <SortIcon column={column} /></button>,
+      header: ({ column }) => <button onClick={() => column.toggleSorting()} className="flex items-center">Player <SortIcon direction={column.getIsSorted()} inline /></button>,
       cell: info => (
         <div>
           <div className="font-medium text-sm">{info.getValue()}</div>
@@ -183,11 +176,11 @@ export default function AdminReportsPage() {
       ),
     }),
     columnHelper.accessor("scout_name", {
-      header: ({ column }) => <button onClick={() => column.toggleSorting()} className="flex items-center">Scout <SortIcon column={column} /></button>,
+      header: ({ column }) => <button onClick={() => column.toggleSorting()} className="flex items-center">Scout <SortIcon direction={column.getIsSorted()} inline /></button>,
       cell: info => <span className="text-sm">{info.getValue()}</span>,
     }),
     columnHelper.accessor("rating", {
-      header: ({ column }) => <button onClick={() => column.toggleSorting()} className="flex items-center">Rating <SortIcon column={column} /></button>,
+      header: ({ column }) => <button onClick={() => column.toggleSorting()} className="flex items-center">Rating <SortIcon direction={column.getIsSorted()} inline /></button>,
       cell: info => (
         <div className="flex items-center gap-1">
           <Star className="w-3.5 h-3.5 text-yellow-400 fill-yellow-400" />
@@ -201,7 +194,7 @@ export default function AdminReportsPage() {
       cell: info => <StatusBadge status={info.getValue()} />,
     }),
     columnHelper.accessor("created_at", {
-      header: ({ column }) => <button onClick={() => column.toggleSorting()} className="flex items-center">Date <SortIcon column={column} /></button>,
+      header: ({ column }) => <button onClick={() => column.toggleSorting()} className="flex items-center">Date <SortIcon direction={column.getIsSorted()} inline /></button>,
       cell: info => <span className="text-sm text-muted-foreground">{formatDate(info.getValue())}</span>,
     }),
     columnHelper.display({

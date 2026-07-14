@@ -16,8 +16,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { Plus, Eye, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Globe, AlertCircle, Building2, Image } from "lucide-react";
+import { Plus, Eye, Edit2, Trash2, Search, ChevronLeft, ChevronRight, Globe, AlertCircle, Building2, Image } from "lucide-react";
 import client from "@/api/client";
+import { SortIcon } from "@/components/SortIcon";
+import { formatDate } from "@/lib/formatters";
 
 interface League {
   id: string;
@@ -26,14 +28,6 @@ interface League {
   logo_url: string | null;
   club_count: number;
   created_at: string;
-}
-
-const formatDate = (dt: string) =>
-  new Date(dt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-
-function SortIcon({ d }: { d: "asc" | "desc" | false }) {
-  if (!d) return <ArrowUpDown className="w-3.5 h-3.5 ml-1 opacity-40" />;
-  return d === "asc" ? <ArrowUp className="w-3.5 h-3.5 ml-1 text-primary" /> : <ArrowDown className="w-3.5 h-3.5 ml-1 text-primary" />;
 }
 
 function CharCount({ value, max }: { value: string; max: number }) {
@@ -128,7 +122,7 @@ export default function AdminLeaguesPage() {
       accessorKey: "name",
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-          League <SortIcon d={column.getIsSorted()} />
+          League <SortIcon direction={column.getIsSorted()} />
         </button>
       ),
       cell: ({ row }) => (
@@ -142,7 +136,7 @@ export default function AdminLeaguesPage() {
       accessorKey: "country",
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-          Country <SortIcon d={column.getIsSorted()} />
+          Country <SortIcon direction={column.getIsSorted()} />
         </button>
       ),
       cell: ({ getValue }) => <span className="text-sm">{getValue() as string}</span>,
@@ -151,7 +145,7 @@ export default function AdminLeaguesPage() {
       accessorKey: "club_count",
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-          Clubs <SortIcon d={column.getIsSorted()} />
+          Clubs <SortIcon direction={column.getIsSorted()} />
         </button>
       ),
       cell: ({ getValue }) => <span className="text-sm">{getValue() as number}</span>,
@@ -160,7 +154,7 @@ export default function AdminLeaguesPage() {
       accessorKey: "created_at",
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-          Created <SortIcon d={column.getIsSorted()} />
+          Created <SortIcon direction={column.getIsSorted()} />
         </button>
       ),
       cell: ({ getValue }) => <span className="text-muted-foreground text-xs">{formatDate(getValue() as string)}</span>,
