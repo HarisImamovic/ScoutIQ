@@ -13,6 +13,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import client from "@/api/client";
+import { calcAge, capitalize, formatDate, formatMarketValue } from "@/lib/formatters";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ApiClub {
@@ -32,25 +33,6 @@ interface ApiReport {
   id: string; player_name: string; position: string; scout_name: string;
   rating: number; status: string; notes: string | null; created_at: string;
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const formatDate = (dt: string) =>
-  new Date(dt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-const calcAge = (dob: string | null): string => {
-  if (!dob) return "—";
-  const birth = new Date(dob);
-  const now = new Date();
-  let age = now.getFullYear() - birth.getFullYear();
-  if (now < new Date(now.getFullYear(), birth.getMonth(), birth.getDate())) age--;
-  return String(age);
-};
-const formatValue = (v: number | null): string => {
-  if (v == null) return "—";
-  if (v >= 1_000_000) return `€${(v / 1_000_000).toFixed(0)}M`;
-  if (v >= 1_000)     return `€${(v / 1_000).toFixed(0)}K`;
-  return `€${v}`;
-};
 
 const PAGE_SIZE = 10;
 const POSITIONS = ["GK", "CB", "LB", "RB", "CDM", "CM", "AM", "CAM", "LW", "RW", "CF", "ST"];
@@ -473,9 +455,9 @@ export default function AdminDashboard() {
                           <div className="text-xs text-muted-foreground">{p.nationality ?? "—"}</div>
                         </td>
                         <td className="py-3 px-2"><Badge variant="outline" className="text-xs">{p.position ?? "—"}</Badge></td>
-                        <td className="py-3 px-2 text-muted-foreground">{calcAge(p.date_of_birth)}</td>
+                        <td className="py-3 px-2 text-muted-foreground">{calcAge(p.date_of_birth) ?? "—"}</td>
                         <td className="py-3 px-2 text-muted-foreground">{p.club_name ?? "—"}</td>
-                        <td className="py-3 px-2 font-display font-bold text-primary text-xs">{formatValue(p.market_value)}</td>
+                        <td className="py-3 px-2 font-display font-bold text-primary text-xs">{formatMarketValue(p.market_value, 0)}</td>
                         <td className="py-3 px-2">
                           <Badge variant="outline" className={STATUS_BADGE[p.status] ?? ""}>{capitalize(p.status)}</Badge>
                         </td>

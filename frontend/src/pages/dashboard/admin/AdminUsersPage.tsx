@@ -17,8 +17,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { Plus, Edit2, Trash2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Users, Eye, EyeOff, Check, AlertCircle, CheckCircle, Bot } from "lucide-react";
+import { Plus, Edit2, Trash2, Search, ChevronLeft, ChevronRight, Users, Eye, EyeOff, Check, AlertCircle, CheckCircle, Bot } from "lucide-react";
 import client from "@/api/client";
+import { SortIcon } from "@/components/SortIcon";
+import { capitalize, formatDate } from "@/lib/formatters";
+import { userStatusColors as statusColors } from "@/lib/statusBadges";
 
 interface User {
   id: string;
@@ -46,24 +49,6 @@ const roleColors: Record<string, string> = {
   club_admin:   "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400",
   global_admin: "bg-primary/10 text-primary border-primary/20",
 };
-
-const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-
-const formatDate = (dt: string) =>
-  new Date(dt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-
-const statusColors: Record<string, string> = {
-  Active:    "bg-primary/10 text-primary border-primary/20",
-  Inactive:  "bg-muted text-muted-foreground border-muted-foreground/20",
-  Suspended: "bg-destructive/10 text-destructive border-destructive/20",
-};
-
-function SortIcon({ d }: { d: "asc" | "desc" | false }) {
-  if (!d) return <ArrowUpDown className="w-3.5 h-3.5 ml-1 opacity-40" />;
-  return d === "asc"
-    ? <ArrowUp className="w-3.5 h-3.5 ml-1 text-primary" />
-    : <ArrowDown className="w-3.5 h-3.5 ml-1 text-primary" />;
-}
 
 function CharCount({ value, max }: { value: string; max: number }) {
   const n = value.length;
@@ -157,7 +142,7 @@ export default function AdminUsersPage() {
       accessorFn: (u) => `${u.first_name} ${u.last_name}`,
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-          Name <SortIcon d={column.getIsSorted()} />
+          Name <SortIcon direction={column.getIsSorted()} />
         </button>
       ),
       cell: ({ row }) => (
@@ -183,7 +168,7 @@ export default function AdminUsersPage() {
       accessorKey: "club_name",
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-          Club <SortIcon d={column.getIsSorted()} />
+          Club <SortIcon direction={column.getIsSorted()} />
         </button>
       ),
       cell: ({ getValue }) => <span>{(getValue() as string | null) ?? "—"}</span>,
@@ -200,7 +185,7 @@ export default function AdminUsersPage() {
       accessorKey: "created_at",
       header: ({ column }) => (
         <button className="flex items-center font-medium hover:text-foreground" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-          Joined <SortIcon d={column.getIsSorted()} />
+          Joined <SortIcon direction={column.getIsSorted()} />
         </button>
       ),
       cell: ({ getValue }) => <span className="text-muted-foreground text-xs">{formatDate(getValue() as string)}</span>,

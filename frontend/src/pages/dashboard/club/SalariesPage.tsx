@@ -29,18 +29,7 @@ import {
   type UpdateContractPayload,
 } from "@/api/clubAdmin";
 import { NoClubState } from "@/components/NoClubState";
-
-const STATUS_COLORS: Record<string, string> = {
-  active: "bg-primary/10 text-primary border-primary/20",
-  injured: "bg-destructive/10 text-destructive border-destructive/20",
-  on_loan: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  active: "Active",
-  injured: "Injured",
-  on_loan: "On Loan",
-};
+import { playerStatusColors as STATUS_COLORS, playerStatusLabels as STATUS_LABEL } from "@/lib/statusBadges";
 
 interface ContractForm {
   player_id: string;

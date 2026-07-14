@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { playerApi, type PlayerStats } from "@/api/player";
 import { ClubLogo } from "@/components/ClubLogo";
+import { formatMarketValue } from "@/lib/formatters";
 
 const GK_POS = new Set(["GK"]);
 const DEF_POS = new Set(["CB", "LB", "RB", "LWB", "RWB", "SW", "CDM"]);
@@ -29,12 +30,6 @@ function get4thStat(position: string | null, stats: PlayerStats | null) {
     return { icon: Activity, label: "Chances Created", value: stats?.chances_created ?? "—", color: "text-orange-500" };
   }
   return { icon: Zap, label: "Dribbles", value: stats?.dribbles ?? "—", color: "text-yellow-500" };
-}
-
-function formatValue(v: number): string {
-  if (v >= 1_000_000) return `€${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `€${(v / 1_000).toFixed(0)}K`;
-  return `€${v}`;
 }
 
 function formatMonth(iso: string): string {
@@ -169,7 +164,7 @@ export default function PlayerDashboard() {
                   <div className="text-sm text-muted-foreground">{age} years old</div>
                 )}
                 {market_value != null && (
-                  <div className="text-sm font-medium">{formatValue(market_value)}</div>
+                  <div className="text-sm font-medium">{formatMarketValue(market_value)}</div>
                 )}
                 <Badge variant="secondary" className="text-xs capitalize">{data.status}</Badge>
               </div>
@@ -218,7 +213,7 @@ export default function PlayerDashboard() {
                     width={56}
                   />
                   <Tooltip
-                    formatter={(v: number) => [formatValue(v), "Market Value"]}
+                    formatter={(v: number) => [formatMarketValue(v), "Market Value"]}
                     contentStyle={{
                       background: "hsl(var(--card))",
                       border: "1px solid hsl(var(--border))",
