@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { ArrowLeft, Shield } from "lucide-react";
 
-const LAST_UPDATED = "July 13, 2026";
+const LAST_UPDATED = "July 17, 2026";
 const CONTACT_EMAIL = "haris.imamovic2208@gmail.com";
 
 const sections = [
@@ -83,7 +83,8 @@ const sections = [
       <p>
         Passwords are hashed with bcrypt, sessions use short-lived JWTs, 2FA secrets and recovery codes are
         encrypted or hashed at rest, and all traffic is served over HTTPS. No system is perfectly secure, but
-        reasonable industry-standard measures are in place.
+        reasonable industry-standard measures are in place. If a breach is discovered that affects your data,
+        you will be notified without undue delay by email once the scope is understood.
       </p>
     ),
   },

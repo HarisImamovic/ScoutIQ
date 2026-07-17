@@ -203,9 +203,14 @@ export default function LandingPage() {
           </div>
           <div className="mt-8 flex flex-col items-center gap-2 text-center text-sm text-muted-foreground">
             <span>© 2026 ScoutIQ. All rights reserved.</span>
-            <Link to="/privacy-policy" className="hover:text-foreground transition-colors underline-offset-4 hover:underline">
-              Privacy Policy
-            </Link>
+            <div className="flex items-center gap-4">
+              <Link to="/privacy-policy" className="hover:text-foreground transition-colors underline-offset-4 hover:underline">
+                Privacy Policy
+              </Link>
+              <Link to="/terms-of-service" className="hover:text-foreground transition-colors underline-offset-4 hover:underline">
+                Terms of Service
+              </Link>
+            </div>
           </div>
         </div>
       </footer>
