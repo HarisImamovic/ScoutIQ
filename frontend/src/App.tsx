@@ -18,6 +18,7 @@ import GoogleCallbackPage from "./pages/GoogleCallbackPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
+import TermsOfServicePage from "./pages/TermsOfServicePage";
 import NotFound from "./pages/NotFound";
 import MfaVerifyPage from "./pages/MfaVerifyPage";
 import MfaSetupPage from "./pages/MfaSetupPage";
@@ -97,6 +98,7 @@ const App = () => (
                 <Route path="/forgot-password" element={<ForgotPasswordPage />} />
                 <Route path="/reset-password" element={<ResetPasswordPage />} />
                 <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                <Route path="/terms-of-service" element={<TermsOfServicePage />} />
                 <Route path="/auth/google/callback" element={<GoogleCallbackPage />} />
                 <Route
                   path="/dashboard"

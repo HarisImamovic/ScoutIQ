@@ -5,6 +5,7 @@ import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Shield, User, Mail, Lock, Check, UserCheck, Search, Briefcase, Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -38,6 +39,7 @@ export default function RegisterPage() {
   const [password, setPassword]               = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [selectedRole, setSelectedRole]       = useState("");
+  const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
   const [showPassword, setShowPassword]       = useState(false);
   const [showConfirm, setShowConfirm]         = useState(false);
   const [submitting, setSubmitting]           = useState(false);
@@ -292,12 +294,32 @@ export default function RegisterPage() {
                   </button>
                 ))}
               </div>
+              <div className="flex items-start gap-2.5 pt-1">
+                <Checkbox
+                  id="agree-privacy"
+                  checked={agreedToPrivacy}
+                  onCheckedChange={(checked) => setAgreedToPrivacy(checked === true)}
+                  className="mt-0.5"
+                />
+                <Label htmlFor="agree-privacy" className="text-sm font-normal text-muted-foreground leading-snug cursor-pointer">
+                  I agree to the{" "}
+                  <Link to="/terms-of-service" target="_blank" className="text-primary hover:underline">
+                    Terms of Service
+                  </Link>{" "}
+                  and{" "}
+                  <Link to="/privacy-policy" target="_blank" className="text-primary hover:underline">
+                    Privacy Policy
+                  </Link>
+                  , and consent to my data being processed as described.
+                </Label>
+              </div>
+
               <div className="flex gap-3">
                 <Button variant="outline" className="flex-1 h-12" onClick={() => setStep(1)}>Back</Button>
                 <Button
                   variant="hero"
                   className="flex-1 h-12"
-                  disabled={!selectedRole || submitting}
+                  disabled={!selectedRole || !agreedToPrivacy || submitting}
                   onClick={handleRegister}
                 >
                   {submitting ? (
