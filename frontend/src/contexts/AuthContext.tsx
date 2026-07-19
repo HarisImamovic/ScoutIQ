@@ -93,6 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     clearTokens();
     queryClient.clear();
+    sessionStorage.removeItem("ai_chat_history");
     toast.success("Logged out successfully.");
     navigate("/login", { replace: true });
   };
