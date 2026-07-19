@@ -77,6 +77,18 @@ def get_dashboard(
         .scalar()
     ) or 0
 
+    last_activity = (
+        db.query(func.max(PlayerView.viewed_at))
+        .filter(PlayerView.scout_id == scout.id)
+        .scalar()
+    ) or scout.created_at
+
+    new_players_since_last_visit = (
+        db.query(func.count(Player.id))
+        .filter(Player.status == "active", Player.created_at > last_activity)
+        .scalar()
+    ) or 0
+
     recent_subq = (
         db.query(
             PlayerView.player_id,
@@ -145,6 +157,7 @@ def get_dashboard(
         ),
         recently_viewed=recently_viewed,
         saved_prospects=saved_prospects,
+        new_players_since_last_visit=new_players_since_last_visit,
     )
 
 
