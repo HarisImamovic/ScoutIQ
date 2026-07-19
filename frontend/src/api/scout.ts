@@ -36,6 +36,7 @@ export interface ScoutDashboardResponse {
   stats: ScoutDashboardStats;
   recently_viewed: RecentPlayerItem[];
   saved_prospects: SavedProspectSummary[];
+  new_players_since_last_visit: number;
 }
 
 export interface ScoutPlayerItem {

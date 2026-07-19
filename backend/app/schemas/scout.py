@@ -39,6 +39,7 @@ class ScoutDashboardResponse(BaseModel):
     stats: ScoutDashboardStats
     recently_viewed: List[RecentPlayerItem]
     saved_prospects: List[SavedProspectSummary]
+    new_players_since_last_visit: int = 0
 
 
 class ScoutPlayerItem(BaseModel):
