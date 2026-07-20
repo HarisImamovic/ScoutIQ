@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -5,6 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies import require_role
 from app.limiter import limiter
@@ -14,8 +16,10 @@ from app.models.player_view import PlayerView
 from app.models.report import ScoutingReport
 from app.models.saved_prospect import SavedProspect
 from app.models.user import User
+from app.pdf_report import build_pdf_response, generate_report_pdf
 from app.utils.age import calc_age
 from app.utils.notifications import create_notification, notify_club_admins
+from app.utils.rate_limit import user_or_ip_key
 from app.utils.uuid import parse_uuid, try_parse_uuid
 from app.schemas.scout import (
     CreateScoutReportRequest,
@@ -32,6 +36,7 @@ from app.schemas.scout import (
 )
 
 router = APIRouter(prefix="/scout", tags=["scout"])
+logger = logging.getLogger(__name__)
 
 _require_scout = require_role("scout")
 
@@ -496,6 +501,38 @@ def update_report(
     db.refresh(report)
 
     return _report_item(report)
+
+
+@router.get("/reports/{report_id}/export")
+@limiter.limit(f"{get_settings().report_export_requests_per_minute}/minute", key_func=user_or_ip_key)
+def export_report(
+    report_id: str,
+    request: Request,
+    scout: User = Depends(_require_scout),
+    db: Session = Depends(get_db),
+):
+    rid = parse_uuid(report_id, "report_id")
+
+    report = (
+        db.query(ScoutingReport)
+        .filter(ScoutingReport.id == rid, ScoutingReport.scout_id == scout.id)
+        .first()
+    )
+    if not report:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
+
+    player = (
+        db.query(Player).filter(Player.id == report.player_id).first()
+        if report.player_id else None
+    )
+
+    try:
+        pdf_bytes = generate_report_pdf(report, player, scout_name=f"{scout.first_name} {scout.last_name}")
+    except Exception:
+        logger.exception("Failed to generate report PDF for report_id=%s", rid)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to generate report PDF.")
+
+    return build_pdf_response(report, pdf_bytes)
 
 
 @router.delete("/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)

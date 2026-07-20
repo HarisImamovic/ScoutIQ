@@ -19,8 +19,8 @@ from app.models.player import Player
 from app.models.report import ScoutingReport
 from app.models.saved_prospect import SavedProspect
 from app.models.user import User
-from app.security import decode_access_token
 from app.utils.age import calc_age
+from app.utils.rate_limit import user_or_ip_key as _ai_rate_key
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 logger = logging.getLogger(__name__)
@@ -49,18 +49,6 @@ def _get_groq_client() -> Groq:
     if _groq is None:
         _groq = Groq(api_key=get_settings().groq_api_key)
     return _groq
-
-
-def _ai_rate_key(request: Request) -> str:
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        try:
-            payload = decode_access_token(auth[7:])
-            return f"ai_user_{payload['sub']}"
-        except Exception:
-            pass
-    from slowapi.util import get_remote_address
-    return get_remote_address(request)
 
 
 class HistoryMessage(BaseModel):
