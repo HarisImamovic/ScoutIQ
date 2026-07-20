@@ -1,5 +1,6 @@
 import client from "./client";
 import type { HighlightItem } from "./player";
+import { extractFilename } from "@/lib/download";
 
 export interface ScoutDashboardStats {
   players_viewed: number;
@@ -147,6 +148,12 @@ export const scoutApi = {
 
   deleteReport: (id: string): Promise<void> =>
     client.delete(`/scout/reports/${id}`).then(() => undefined),
+
+  exportReportPdf: (id: string): Promise<{ blob: Blob; filename: string }> =>
+    client.get(`/scout/reports/${id}/export`, { responseType: "blob" }).then((r) => ({
+      blob: r.data as Blob,
+      filename: extractFilename(r.headers["content-disposition"]) ?? `scouting_report_${id}.pdf`,
+    })),
 
   getPlayerHighlights: (playerId: string): Promise<HighlightItem[]> =>
     client.get(`/highlights/player/${playerId}`).then((r) => r.data),

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     ai_max_players_context: int = 150
     ai_max_reports_context: int = 20
     ai_max_prospects_context: int = 30
+    report_export_requests_per_minute: int = 20
     telegram_bot_token: str = ""
     telegram_bot_username: str = ""
     telegram_mode: str = "polling"

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 import { toast } from "sonner";
 import {
   useReactTable, getCoreRowModel, getSortedRowModel,
@@ -26,11 +27,13 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Plus, Eye, Edit2, Trash2, FileText, AlertCircle, ChevronsUpDown, Check,
+  Plus, Eye, Edit2, Trash2, Download, FileText, AlertCircle, ChevronsUpDown, Check,
   Search, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { scoutApi, ScoutReportItem } from "@/api/scout";
 import { SortIcon } from "@/components/SortIcon";
+import { ConfirmDownloadDialog } from "@/components/ConfirmDownloadDialog";
+import { triggerBlobDownload } from "@/lib/download";
 import { capitalize, formatDate } from "@/lib/formatters";
 
 const POSITIONS = ["GK", "CB", "LB", "RB", "CDM", "CM", "AM", "LW", "RW", "CF", "ST"];
@@ -55,6 +58,7 @@ export default function ReportsPage() {
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [activeReport, setActiveReport] = useState<ScoutReportItem | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [downloadTarget, setDownloadTarget] = useState<ScoutReportItem | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [playerOpen, setPlayerOpen] = useState(false);
   const [playerSearch, setPlayerSearch] = useState("");
@@ -124,6 +128,23 @@ export default function ReportsPage() {
     },
     onError: () => {
       toast.error("Failed to delete report.");
+    },
+  });
+
+  const downloadMutation = useMutation({
+    mutationFn: (id: string) => scoutApi.exportReportPdf(id),
+    onSuccess: ({ blob, filename }) => {
+      triggerBlobDownload(blob, filename);
+      setDownloadTarget(null);
+      toast.success("Report downloaded.");
+    },
+    onError: (err: unknown) => {
+      const isRateLimited = axios.isAxiosError(err) && err.response?.status === 429;
+      toast.error(
+        isRateLimited
+          ? "Too many download requests. Please wait a moment and try again."
+          : "Failed to download report. Please try again.",
+      );
     },
   });
 
@@ -225,14 +246,17 @@ export default function ReportsPage() {
       cell: ({ row }) => {
         const r = row.original;
         return (
-          <div className="flex items-center justify-end gap-1">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openView(r)}>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="View report" onClick={() => openView(r)}>
               <Eye className="w-3.5 h-3.5" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(r)}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Edit report" onClick={() => openEdit(r)}>
               <Edit2 className="w-3.5 h-3.5" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(r.id)}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Download report" onClick={() => setDownloadTarget(r)}>
+              <Download className="w-3.5 h-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" aria-label="Delete report" onClick={() => setDeleteId(r.id)}>
               <Trash2 className="w-3.5 h-3.5" />
             </Button>
           </div>
@@ -326,9 +350,10 @@ export default function ReportsPage() {
                       <p className="text-xs text-muted-foreground">{r.position}</p>
                     </div>
                     <div className="flex gap-1 shrink-0">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openView(r)}><Eye className="w-3.5 h-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(r)}><Edit2 className="w-3.5 h-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(r.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="View report" onClick={() => openView(r)}><Eye className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Edit report" onClick={() => openEdit(r)}><Edit2 className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Download report" onClick={() => setDownloadTarget(r)}><Download className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" aria-label="Delete report" onClick={() => setDeleteId(r.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -456,6 +481,9 @@ export default function ReportsPage() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setModalMode(null)}>Close</Button>
+              <Button variant="outline" onClick={() => setDownloadTarget(activeReport)}>
+                <Download className="w-4 h-4 mr-2" /> Download PDF
+              </Button>
               <Button variant="hero" onClick={() => { setModalMode(null); setTimeout(() => openEdit(activeReport), 50); }}>
                 <Edit2 className="w-4 h-4 mr-2" /> Edit
               </Button>
@@ -616,6 +644,14 @@ export default function ReportsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ConfirmDownloadDialog
+        open={!!downloadTarget}
+        onOpenChange={() => setDownloadTarget(null)}
+        playerName={downloadTarget?.player_name ?? ""}
+        isDownloading={downloadMutation.isPending}
+        onConfirm={() => downloadTarget && downloadMutation.mutate(downloadTarget.id)}
+      />
     </div>
   );
 }

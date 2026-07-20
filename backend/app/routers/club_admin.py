@@ -1,17 +1,21 @@
+import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies import require_role
+from app.limiter import limiter
 from app.models.club import Club
 from app.models.league import League
 from app.models.player import Player
 from app.models.player_contract import PlayerContract
 from app.models.report import ScoutingReport
 from app.models.user import User
+from app.pdf_report import build_pdf_response, generate_report_pdf
 from app.schemas.club_admin import (
     ClubDashboardResponse,
     ClubDashboardStats,
@@ -29,10 +33,12 @@ from app.schemas.player import PlayerStats, UpdatePlayerStatsRequest
 from app.schemas.scout import ScoutPlayerItem, ScoutPlayersResponse
 from app.utils.age import calc_age
 from app.utils.notifications import create_notification
+from app.utils.rate_limit import user_or_ip_key
 from app.utils.telegram import send_report_notification
 from app.utils.uuid import parse_uuid
 
 router = APIRouter(prefix="/club", tags=["club_admin"])
+logger = logging.getLogger(__name__)
 
 _require_club_admin = require_role("club_admin")
 
@@ -346,6 +352,46 @@ def get_reports(
         )
         for r, fn, ln in rows
     ]
+
+
+@router.get("/reports/{report_id}/export")
+@limiter.limit(f"{get_settings().report_export_requests_per_minute}/minute", key_func=user_or_ip_key)
+def export_report(
+    report_id: str,
+    request: Request,
+    admin: User = Depends(_require_club_admin),
+    db: Session = Depends(get_db),
+):
+    club = _get_club(admin, db)
+    rid = parse_uuid(report_id, "report_id")
+    scout_ids = _get_scout_ids(club.id, db)
+
+    row = (
+        db.query(ScoutingReport, User.first_name, User.last_name)
+        .join(User, ScoutingReport.scout_id == User.id)
+        .filter(
+            ScoutingReport.id == rid,
+            ScoutingReport.scout_id.in_(scout_ids),
+            ScoutingReport.status.in_(["submitted", "approved", "rejected"]),
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
+
+    report, fn, ln = row
+    player = (
+        db.query(Player).filter(Player.id == report.player_id).first()
+        if report.player_id else None
+    )
+
+    try:
+        pdf_bytes = generate_report_pdf(report, player, scout_name=f"{fn} {ln}")
+    except Exception:
+        logger.exception("Failed to generate report PDF for report_id=%s", rid)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to generate report PDF.")
+
+    return build_pdf_response(report, pdf_bytes)
 
 
 @router.put("/reports/{report_id}/status", response_model=ClubReportItem)

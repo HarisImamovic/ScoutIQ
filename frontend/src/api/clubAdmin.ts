@@ -2,6 +2,7 @@ import axios from "axios";
 import client from "./client";
 import type { ScoutPlayersResponse } from "./scout";
 import type { PlayerStats } from "./player";
+import { extractFilename } from "@/lib/download";
 
 export function isNoClubError(error: unknown): boolean {
   return (
@@ -149,6 +150,12 @@ export const clubAdminApi = {
 
   updateReportStatus: (id: string, status: "approved" | "rejected"): Promise<ClubReportItem> =>
     client.put(`/club/reports/${id}/status`, { status }).then((r) => r.data),
+
+  exportReportPdf: (id: string): Promise<{ blob: Blob; filename: string }> =>
+    client.get(`/club/reports/${id}/export`, { responseType: "blob" }).then((r) => ({
+      blob: r.data as Blob,
+      filename: extractFilename(r.headers["content-disposition"]) ?? `scouting_report_${id}.pdf`,
+    })),
 
   getContracts: (): Promise<ContractItem[]> =>
     client.get("/club/contracts").then((r) => r.data),

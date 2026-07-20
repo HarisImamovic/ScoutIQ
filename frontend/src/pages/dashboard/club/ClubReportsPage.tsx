@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 import { toast } from "sonner";
 import { useState, useMemo } from "react";
 import {
@@ -22,12 +23,14 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Eye, CheckCircle2, XCircle, FileText, Clock, AlertCircle,
+  Eye, CheckCircle2, XCircle, Download, FileText, Clock, AlertCircle,
   Search, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { clubAdminApi, isNoClubError, type ClubReportItem } from "@/api/clubAdmin";
 import { NoClubState } from "@/components/NoClubState";
 import { SortIcon } from "@/components/SortIcon";
+import { ConfirmDownloadDialog } from "@/components/ConfirmDownloadDialog";
+import { triggerBlobDownload } from "@/lib/download";
 import { formatDate } from "@/lib/formatters";
 import { reportStatusColors as STATUS_COLORS, reportStatusLabels as STATUS_LABEL } from "@/lib/statusBadges";
 
@@ -37,6 +40,7 @@ export default function ClubReportsPage() {
   const qc = useQueryClient();
   const [viewReport, setViewReport] = useState<ClubReportItem | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ id: string; action: "approved" | "rejected" } | null>(null);
+  const [downloadTarget, setDownloadTarget] = useState<ClubReportItem | null>(null);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -63,6 +67,23 @@ export default function ClubReportsPage() {
     onError: () => {
       toast.error("Failed to update report status. Please try again.", { duration: 5000 });
       setConfirmAction(null);
+    },
+  });
+
+  const downloadMutation = useMutation({
+    mutationFn: (id: string) => clubAdminApi.exportReportPdf(id),
+    onSuccess: ({ blob, filename }) => {
+      triggerBlobDownload(blob, filename);
+      setDownloadTarget(null);
+      toast.success("Report downloaded.");
+    },
+    onError: (err: unknown) => {
+      const isRateLimited = axios.isAxiosError(err) && err.response?.status === 429;
+      toast.error(
+        isRateLimited
+          ? "Too many download requests. Please wait a moment and try again."
+          : "Failed to download report. Please try again.",
+      );
     },
   });
 
@@ -138,9 +159,12 @@ export default function ClubReportsPage() {
       cell: ({ row }) => {
         const r = row.original;
         return (
-          <div className="flex items-center justify-end gap-1">
+          <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setViewReport(r)}>
               <Eye className="w-3.5 h-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDownloadTarget(r)}>
+              <Download className="w-3.5 h-3.5" />
             </Button>
             {r.status === "submitted" && (
               <>
@@ -265,6 +289,9 @@ export default function ClubReportsPage() {
                     <div className="flex gap-1 shrink-0">
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setViewReport(r)}>
                         <Eye className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDownloadTarget(r)}>
+                        <Download className="w-3.5 h-3.5" />
                       </Button>
                       {r.status === "submitted" && (
                         <>
@@ -407,25 +434,30 @@ export default function ClubReportsPage() {
                 </div>
               </div>
             </div>
-            {viewReport.status === "submitted" && (
-              <DialogFooter className="gap-2">
-                <Button
-                  variant="outline"
-                  className="text-destructive border-destructive/30 hover:bg-destructive/10"
-                  onClick={() => setConfirmAction({ id: viewReport.id, action: "rejected" })}
-                  disabled={statusMutation.isPending}
-                >
-                  <XCircle className="w-4 h-4 mr-2" /> Reject
-                </Button>
-                <Button
-                  variant="hero"
-                  onClick={() => setConfirmAction({ id: viewReport.id, action: "approved" })}
-                  disabled={statusMutation.isPending}
-                >
-                  <CheckCircle2 className="w-4 h-4 mr-2" /> Approve
-                </Button>
-              </DialogFooter>
-            )}
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setDownloadTarget(viewReport)}>
+                <Download className="w-4 h-4 mr-2" /> Download PDF
+              </Button>
+              {viewReport.status === "submitted" && (
+                <>
+                  <Button
+                    variant="outline"
+                    className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                    onClick={() => setConfirmAction({ id: viewReport.id, action: "rejected" })}
+                    disabled={statusMutation.isPending}
+                  >
+                    <XCircle className="w-4 h-4 mr-2" /> Reject
+                  </Button>
+                  <Button
+                    variant="hero"
+                    onClick={() => setConfirmAction({ id: viewReport.id, action: "approved" })}
+                    disabled={statusMutation.isPending}
+                  >
+                    <CheckCircle2 className="w-4 h-4 mr-2" /> Approve
+                  </Button>
+                </>
+              )}
+            </DialogFooter>
           </DialogContent>
         )}
       </Dialog>
@@ -463,6 +495,14 @@ export default function ClubReportsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ConfirmDownloadDialog
+        open={!!downloadTarget}
+        onOpenChange={() => setDownloadTarget(null)}
+        playerName={downloadTarget?.player_name ?? ""}
+        isDownloading={downloadMutation.isPending}
+        onConfirm={() => downloadTarget && downloadMutation.mutate(downloadTarget.id)}
+      />
     </div>
   );
 }
