@@ -47,7 +47,7 @@ test.describe("Scout", () => {
     await page.waitForLoadState("networkidle");
 
     const firstRow = page.getByRole("row").nth(1);
-    await firstRow.getByRole("button").nth(2).click();
+    await firstRow.getByRole("button", { name: "Delete report" }).click();
 
     const alertDialog = page.getByRole("alertdialog");
     await expect(alertDialog).toBeVisible();

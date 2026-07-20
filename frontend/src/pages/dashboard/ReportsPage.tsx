@@ -247,16 +247,16 @@ export default function ReportsPage() {
         const r = row.original;
         return (
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openView(r)}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="View report" onClick={() => openView(r)}>
               <Eye className="w-3.5 h-3.5" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(r)}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Edit report" onClick={() => openEdit(r)}>
               <Edit2 className="w-3.5 h-3.5" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDownloadTarget(r)}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Download report" onClick={() => setDownloadTarget(r)}>
               <Download className="w-3.5 h-3.5" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(r.id)}>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" aria-label="Delete report" onClick={() => setDeleteId(r.id)}>
               <Trash2 className="w-3.5 h-3.5" />
             </Button>
           </div>
@@ -350,10 +350,10 @@ export default function ReportsPage() {
                       <p className="text-xs text-muted-foreground">{r.position}</p>
                     </div>
                     <div className="flex gap-1 shrink-0">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openView(r)}><Eye className="w-3.5 h-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(r)}><Edit2 className="w-3.5 h-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDownloadTarget(r)}><Download className="w-3.5 h-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeleteId(r.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="View report" onClick={() => openView(r)}><Eye className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Edit report" onClick={() => openEdit(r)}><Edit2 className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Download report" onClick={() => setDownloadTarget(r)}><Download className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" aria-label="Delete report" onClick={() => setDeleteId(r.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
